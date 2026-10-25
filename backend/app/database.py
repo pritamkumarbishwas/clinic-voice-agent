@@ -49,6 +49,7 @@ async def initialize_database() -> None:
     await call_turns.create_index(
         [("call_id", ASCENDING), ("started_at", ASCENDING)]
     )
+    await call_turns.create_index([("call_id", ASCENDING), ("turn_id", ASCENDING)])
     await call_turns.create_index([("started_at", DESCENDING)])
 
 

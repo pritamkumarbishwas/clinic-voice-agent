@@ -255,7 +255,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     # All transcript/metric writes go through one ordered queue, so a turn is
     # always inserted before its reply updates it (no races between events).
     jobs: asyncio.Queue[tuple] = asyncio.Queue()
-    pending_turns: list = []
+    last_user_item_id: str | None = None
     persisted_message_ids: set[str] = set()
 
     async def publish_transcript(role: str, text: str, is_final: bool) -> None:
@@ -277,30 +277,35 @@ async def clinic_receptionist(ctx: agents.JobContext):
             return
 
     async def handle_item(item: ChatMessage, metrics: dict) -> None:
+        nonlocal last_user_item_id
         text = (item.text_content or "").strip()
 
         if item.role == "user":
-            result = await call_turns.insert_one(
+            last_user_item_id = item.id
+            await call_turns.update_one(
+                {"call_id": call_id, "turn_id": item.id},
                 {
-                    "call_id": call_id,
-                    "turn_id": item.id,
-                    "role": "user",
-                    "started_at": datetime.now(timezone.utc),
-                    "endpoint_latency_ms": _milliseconds(
-                        metrics.get("end_of_turn_delay")
-                    ),
-                    "stt_latency_ms": _milliseconds(
-                        metrics.get("transcription_delay")
-                    ),
-                    "llm_latency_ms": None,
-                    "tts_latency_ms": None,
-                    "end_to_audio_ms": None,
-                    "playback_latency_ms": None,
-                    "assistant_interrupted": False,
-                    "timing_quality": "livekit_per_turn",
-                }
+                    "$set": {
+                        "endpoint_latency_ms": _milliseconds(
+                            metrics.get("end_of_turn_delay")
+                        ),
+                        "stt_latency_ms": _milliseconds(
+                            metrics.get("transcription_delay")
+                        ),
+                    },
+                    "$setOnInsert": {
+                        "role": "user",
+                        "started_at": datetime.now(timezone.utc),
+                        "llm_latency_ms": None,
+                        "tts_latency_ms": None,
+                        "end_to_audio_ms": None,
+                        "playback_latency_ms": None,
+                        "assistant_interrupted": False,
+                        "timing_quality": "livekit_per_turn",
+                    },
+                },
+                upsert=True,
             )
-            pending_turns.append(result.inserted_id)
             return
 
         if text and item.id and item.id not in persisted_message_ids:
@@ -317,34 +322,37 @@ async def clinic_receptionist(ctx: agents.JobContext):
             )
             await publish_transcript("assistant", text, True)
 
-        metrics_update = {
-            "llm_latency_ms": _milliseconds(metrics.get("llm_node_ttft")),
-            "tts_latency_ms": _milliseconds(metrics.get("tts_node_ttfb")),
-            "end_to_audio_ms": _milliseconds(metrics.get("e2e_latency")),
-            "playback_latency_ms": _milliseconds(metrics.get("playback_latency")),
-            "assistant_interrupted": bool(item.interrupted),
-        }
-        has_timing = any(
-            value is not None
-            for key, value in metrics_update.items()
-            if key != "assistant_interrupted"
-        )
-
-        if pending_turns:
-            await call_turns.update_one(
-                {"_id": pending_turns.pop(0)},
-                {"$set": metrics_update},
-            )
-        elif has_timing or item.interrupted:
-            await call_turns.insert_one(
-                {
-                    "call_id": call_id,
-                    "turn_id": item.id,
+        # Keep the reply as its own row so each side's latency stays truthful:
+        # caller rows carry endpoint/STT, assistant rows carry LLM/TTS/E2E.
+        await call_turns.update_one(
+            {"call_id": call_id, "turn_id": item.id},
+            {
+                "$set": {
+                    "llm_latency_ms": _milliseconds(
+                        metrics.get("llm_node_ttft")
+                    ),
+                    "tts_latency_ms": _milliseconds(
+                        metrics.get("tts_node_ttfb")
+                    ),
+                    "end_to_audio_ms": _milliseconds(
+                        metrics.get("e2e_latency")
+                    ),
+                    "playback_latency_ms": _milliseconds(
+                        metrics.get("playback_latency")
+                    ),
+                    "assistant_interrupted": bool(item.interrupted),
+                },
+                "$setOnInsert": {
                     "role": "assistant",
                     "started_at": datetime.now(timezone.utc),
-                    **metrics_update,
-                }
-            )
+                    "endpoint_latency_ms": None,
+                    "stt_latency_ms": None,
+                    "reply_to_turn_id": last_user_item_id,
+                    "timing_quality": "livekit_per_turn",
+                },
+            },
+            upsert=True,
+        )
 
     async def persist_worker() -> None:
         while True:

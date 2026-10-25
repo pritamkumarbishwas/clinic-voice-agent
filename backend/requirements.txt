@@ -1,7 +1,8 @@
-
-fastapi
-uvicorn[standard]
-python-dotenv
-livekit-api
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-dotenv>=1.0,<2
+livekit-api>=1.0,<2
 livekit-agents[silero,sarvam]~=1.8
-motor
+motor>=3.6,<4
+pymongo>=4.9,<5
+tzdata>=2024.1

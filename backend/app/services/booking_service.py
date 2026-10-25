@@ -85,20 +85,16 @@ async def check_availability(date: str, doctor_name: str) -> dict:
     day_end = day_start + timedelta(days=1)
     now = datetime.now(timezone.utc)
 
-    cursor = (
-        slots.find(
-            {
-                "doctor_id": doctor["_id"],
-                "start_at": {
-                    "$gte": _local_to_utc(day_start),
-                    "$lt": _local_to_utc(day_end),
-                },
-                "status": "available",
-            }
-        )
-        .sort("start_at", 1)
-        .limit(MAX_SLOTS_PER_DATE)
-    )
+    cursor = slots.find(
+        {
+            "doctor_id": doctor["_id"],
+            "start_at": {
+                "$gte": _local_to_utc(day_start),
+                "$lt": _local_to_utc(day_end),
+            },
+            "status": "available",
+        }
+    ).sort("start_at", 1)
 
     results = []
     async for slot in cursor:
@@ -117,6 +113,9 @@ async def check_availability(date: str, doctor_name: str) -> dict:
                 "local_time": start_local.strftime("%I:%M %p").lstrip("0"),
             }
         )
+
+        if len(results) >= MAX_SLOTS_PER_DATE:
+            break
 
     return {
         "ok": True,

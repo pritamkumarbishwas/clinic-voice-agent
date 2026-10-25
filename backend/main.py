@@ -128,7 +128,7 @@ async def list_calls(
     skip = (page - 1) * page_size
 
     results = (
-        await calls.find({}, {"_id": 0})
+        await calls.find({}, {"_id": 0, "transcript": 0})
         .sort("started_at", -1)
         .skip(skip)
         .limit(page_size)

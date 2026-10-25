@@ -57,6 +57,10 @@ h1 {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  background: #c3ccd8;
+}
+
+.dot.online {
   background: #16a34a;
 }
 
@@ -151,11 +155,16 @@ button.secondary {
   width: 100%;
   padding: 18px;
   text-align: left;
+  color: #172033;
   border: 1px solid #ddd;
   border-radius: 12px;
   background: white;
   cursor: pointer;
   overflow-wrap: anywhere;
+}
+
+.call-card:hover {
+  border-color: #176b87;
 }
 
 .call-card span {
@@ -265,5 +274,184 @@ button:disabled {
   .latency-bar-track {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+}
+
+/* ---------- App shell / navigation ---------- */
+
+.app-shell {
+  min-height: 100vh;
+  text-align: left;
+}
+
+.topbar {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 20px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.topbar .eyebrow {
+  margin: 0 0 4px;
+}
+
+.topbar strong {
+  display: block;
+  font-size: 20px;
+  color: #172033;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab {
+  padding: 9px 14px;
+  border: 1px solid #d6e0ea;
+  border-radius: 999px;
+  background: #e8edf4;
+  color: #176b87;
+  font-size: 14px;
+}
+
+.tab.active {
+  border-color: #176b87;
+  background: #176b87;
+  color: #fff;
+}
+
+.view {
+  padding-top: 8px;
+}
+
+.live-call {
+  display: flex;
+  justify-content: center;
+  padding: 24px 20px 48px;
+}
+
+/* ---------- Live call ---------- */
+
+.audio-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid #f3c98b;
+  border-radius: 10px;
+  background: #fff7e8;
+  font-size: 14px;
+}
+
+.audio-banner button {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.transcript-item .speaker {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #176b87;
+}
+
+.transcript-item.user {
+  background: #f4f7fb;
+}
+
+.transcript-item.assistant {
+  background: #e9f4f8;
+}
+
+/* ---------- Call detail ---------- */
+
+.muted {
+  color: #69758a;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.detail-grid dt {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #69758a;
+}
+
+.detail-grid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.summary {
+  margin: 16px 0;
+}
+
+.appointment-card {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid #cfe3d6;
+  border-radius: 10px;
+  background: #f2fbf5;
+}
+
+.appointment-card h3 {
+  margin-top: 0;
+}
+
+.message.user {
+  background: #f4f7fb;
+}
+
+.message.assistant {
+  background: #e9f4f8;
+}
+
+.turn-metrics {
+  display: grid;
+  gap: 6px;
+}
+
+.turn-metric {
+  display: grid;
+  grid-template-columns: 56px repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e5eaf2;
+  border-radius: 8px;
+  background: #fafcff;
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.turn-role {
+  font-weight: 700;
+  color: #176b87;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .turn-metric {
+    grid-template-columns: 48px 1fr 1fr;
   }
 }

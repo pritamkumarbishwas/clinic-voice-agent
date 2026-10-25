@@ -3,7 +3,7 @@ import asyncio
 import math
 import json
 
-from app.database import db, client
+from app.database import call_turns, client
 
 
 METRICS = {
@@ -27,7 +27,7 @@ def percentile(values, p):
 
 async def main():
     try:
-        cursor = db.call_turns.find({})
+        cursor = call_turns.find({})
         rows = await cursor.to_list(length=100000)
 
         report = {}
