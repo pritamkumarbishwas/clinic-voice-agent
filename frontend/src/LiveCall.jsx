@@ -369,7 +369,9 @@ export default function LiveCall() {
                   ? "warning"
                   : error
                     ? "destructive"
-                    : "outline"
+                    : phase === "ended"
+                      ? "secondary"
+                      : "outline"
             }
             className="px-3 py-1"
           >
@@ -391,7 +393,9 @@ export default function LiveCall() {
                 ? "Connecting"
                 : error
                   ? "Needs attention"
-                  : "Ready"}
+                  : phase === "ended"
+                    ? "Ended"
+                    : "Ready"}
           </Badge>
         }
       />
