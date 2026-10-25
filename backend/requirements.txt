@@ -1,0 +1,7 @@
+
+fastapi
+uvicorn[standard]
+python-dotenv
+livekit-api
+livekit-agents[silero,sarvam]~=1.8
+motor
