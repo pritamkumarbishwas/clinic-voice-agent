@@ -132,7 +132,9 @@ export default function LiveCall() {
         );
 
         if (remaining.length === 0) {
-          stopSession("Call ended");
+          stopSession("Call ended").catch((err) => {
+            console.error("Could not end the call cleanly", err);
+          });
         }
       });
 
@@ -278,7 +280,7 @@ export default function LiveCall() {
           <button
             type="button"
             className="secondary"
-            onClick={stopSession}
+            onClick={() => stopSession()}
             disabled={!isConnecting && !isConnected}
           >
             Stop

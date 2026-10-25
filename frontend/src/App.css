@@ -10,14 +10,6 @@ body {
   color: #172033;
 }
 
-.app {
-  min-height: 100vh;
-  padding: 48px 20px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-}
-
 .panel {
   width: 100%;
   max-width: 760px;
@@ -116,10 +108,6 @@ button.secondary {
 }
 
 @media (max-width: 520px) {
-  .app {
-    padding: 20px 12px;
-  }
-
   .panel {
     padding: 22px 16px;
   }
@@ -197,10 +185,6 @@ button.secondary {
   align-items: center;
   gap: 16px;
   margin: 24px 0;
-}
-
-button {
-  cursor: pointer;
 }
 
 button:disabled {

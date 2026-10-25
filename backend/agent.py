@@ -270,6 +270,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     # All transcript/metric writes go through one ordered queue, so a turn is
     # always inserted before its reply updates it (no races between events).
     jobs: asyncio.Queue[tuple] = asyncio.Queue()
+    publish_jobs: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
     last_user_item_id: str | None = None
     persisted_message_ids: set[str] = set()
 
@@ -335,7 +336,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
                     }
                 },
             )
-            await publish_transcript("assistant", text, True)
+            publish_jobs.put_nowait(("assistant", text, True))
 
         # Keep the reply as its own row so each side's latency stays truthful:
         # caller rows carry endpoint/STT, assistant rows carry LLM/TTS/E2E.
@@ -389,8 +390,19 @@ async def clinic_receptionist(ctx: agents.JobContext):
             finally:
                 jobs.task_done()
 
+    async def publish_worker() -> None:
+        while True:
+            role, text, is_final = await publish_jobs.get()
+            try:
+                await publish_transcript(role, text, is_final)
+            finally:
+                publish_jobs.task_done()
+
     worker_task = asyncio.create_task(
         persist_worker(), name=f"persist-{call_id}"
+    )
+    publish_task = asyncio.create_task(
+        publish_worker(), name=f"publish-{call_id}"
     )
 
     @session.on("conversation_item_added")
@@ -408,17 +420,19 @@ async def clinic_receptionist(ctx: agents.JobContext):
         if event.is_final:
             jobs.put_nowait(("transcript", text))
 
-        asyncio.create_task(
-            publish_transcript("user", text, bool(event.is_final))
-        )
+        publish_jobs.put_nowait(("user", text, bool(event.is_final)))
 
     async def finalize(_reason: str) -> None:
         with contextlib.suppress(Exception):
             await jobs.join()
+            await publish_jobs.join()
 
         worker_task.cancel()
+        publish_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await publish_task
 
         try:
             await calls.update_one(
