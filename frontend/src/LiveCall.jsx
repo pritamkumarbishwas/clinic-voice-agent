@@ -84,7 +84,8 @@ export default function LiveCall() {
   const audioElementsRef = useRef(new Map());
   const isStartingRef = useRef(false);
   const startAbortRef = useRef(null);
-  const transcriptEndRef = useRef(null);
+  const transcriptViewportRef = useRef(null);
+  const transcriptPinnedRef = useRef(true);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -315,12 +316,28 @@ export default function LiveCall() {
   }, [isConnected]);
 
   useEffect(() => {
+    const viewport = transcriptViewportRef.current;
+    if (!viewport) return undefined;
+
+    function handleScroll() {
+      transcriptPinnedRef.current =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+    }
+
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const viewport = transcriptViewportRef.current;
+    if (!viewport || !transcriptPinnedRef.current) return;
+
     const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
       .matches
       ? "auto"
       : "smooth";
 
-    transcriptEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }, [transcripts]);
 
   const phase = error
@@ -329,7 +346,9 @@ export default function LiveCall() {
       ? "live"
       : isConnecting
         ? "connecting"
-        : "idle";
+        : status === "Call ended"
+          ? "ended"
+          : "idle";
 
   const finalCount = transcripts.filter((item) => item.isFinal).length;
   const canStop = isConnecting || isConnected;
@@ -432,7 +451,9 @@ export default function LiveCall() {
                     type="button"
                     variant={isConnecting ? "outline" : "destructive"}
                     size="xl"
-                    onClick={() => stopSession()}
+                    onClick={() =>
+                      stopSession(isConnecting ? "Disconnected" : "Call ended")
+                    }
                     className="w-full"
                   >
                     {isConnecting ? (
@@ -547,7 +568,7 @@ export default function LiveCall() {
           </CardHeader>
 
           <CardContent className="min-h-0 flex-1 p-0">
-            <ScrollArea className="h-full">
+            <ScrollArea className="h-full" viewportRef={transcriptViewportRef}>
               <div
                 className="space-y-4 px-4 py-5 sm:px-5"
                 role="log"
@@ -569,7 +590,6 @@ export default function LiveCall() {
                     />
                   ))
                 )}
-                <div ref={transcriptEndRef} />
               </div>
             </ScrollArea>
           </CardContent>

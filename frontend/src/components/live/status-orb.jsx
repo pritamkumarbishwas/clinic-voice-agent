@@ -2,6 +2,7 @@ import {
   AudioLines,
   Loader2,
   Mic,
+  PhoneOff,
   TriangleAlert,
 } from "lucide-react";
 
@@ -26,6 +27,12 @@ const PHASES = {
     icon: AudioLines,
     core: "border-primary/25 bg-primary text-primary-foreground shadow-xl shadow-primary/25",
     ring: "border-primary/20",
+  },
+  ended: {
+    title: "Call ended",
+    icon: PhoneOff,
+    core: "border-border bg-muted text-muted-foreground",
+    ring: "border-border",
   },
   error: {
     title: "Couldn't connect",

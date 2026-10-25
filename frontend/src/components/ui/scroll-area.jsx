@@ -2,7 +2,7 @@ import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 
 import { cn } from "@/lib/utils";
 
-function ScrollArea({ className, children, ...props }) {
+function ScrollArea({ className, children, viewportRef, ...props }) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -10,6 +10,7 @@ function ScrollArea({ className, children, ...props }) {
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
         className="size-full rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >

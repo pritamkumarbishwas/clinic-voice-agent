@@ -46,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const TAB_CLASS =
-  "h-11 flex-none gap-1.5 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
+  "h-11 flex-none gap-1.5 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-2 text-[11px] sm:px-3 sm:text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 function prettyValue(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -82,7 +82,10 @@ function DetailStat({ icon: Icon, label, value }) {
         <Icon className="size-3.5" />
         {label}
       </div>
-      <p className="mt-1.5 truncate text-sm font-semibold" title={String(value)}>
+      <p
+        className="mt-1.5 line-clamp-2 text-sm font-semibold break-words"
+        title={String(value)}
+      >
         {value}
       </p>
     </div>
@@ -277,14 +280,14 @@ function CallDetailSheet({
                   <TabsTrigger value="transcript" className={TAB_CLASS}>
                     <MessageSquareText />
                     Transcript
-                    <span className="rounded-full bg-muted px-1.5 text-[10px]">
+                    <span className="hidden rounded-full bg-muted px-1.5 text-[10px] sm:inline-flex">
                       {transcript.length}
                     </span>
                   </TabsTrigger>
                   <TabsTrigger value="tools" className={TAB_CLASS}>
                     <Wrench />
                     Tools
-                    <span className="rounded-full bg-muted px-1.5 text-[10px]">
+                    <span className="hidden rounded-full bg-muted px-1.5 text-[10px] sm:inline-flex">
                       {toolCalls.length}
                     </span>
                   </TabsTrigger>
@@ -319,7 +322,7 @@ function CallDetailSheet({
                     )}
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                     <DetailStat
                       icon={Clock3}
                       label="Duration"
@@ -384,7 +387,7 @@ function CallDetailSheet({
                                 Appointment booked
                               </p>
                               <Badge variant="success">
-                                {titleCase(appointment.status)}
+                                {titleCase(appointment.status || "booked")}
                               </Badge>
                             </div>
                             <p className="mt-1 text-sm font-semibold">

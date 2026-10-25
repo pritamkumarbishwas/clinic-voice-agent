@@ -31,6 +31,7 @@ function ConnectionStatus({ status, onRetry }) {
       type="button"
       onClick={onRetry}
       title="Check API connection"
+      aria-label={`${state.label}. Check API connection`}
       className="group flex items-center gap-2 rounded-full border border-border/80 bg-card/70 px-2.5 py-1.5 text-[11px] font-semibold shadow-xs transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <span className="relative flex size-2 shrink-0">
