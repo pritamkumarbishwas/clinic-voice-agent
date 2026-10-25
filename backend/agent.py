@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -19,8 +18,8 @@ from livekit.agents import (
 from livekit.agents.llm import ChatMessage
 from livekit.plugins import sarvam, silero
 
+from app.config import sanitize_run_id, settings
 from app.database import call_turns, calls, initialize_database
-from app.services.analytics_worker import process_call
 from app.services.booking_service import (
     CLINIC_TZ,
     book_appointment as db_book_appointment,
@@ -32,7 +31,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("clinic-booking-agent")
 
-AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "clinic-receptionist")
+AGENT_NAME = settings.livekit_agent_name
 TRANSCRIPT_TOPIC = "transcripts"
 AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
@@ -124,6 +123,51 @@ def _transcript_entry(role: str, text: str, message_id: str | None = None) -> di
     if message_id:
         entry["message_id"] = message_id
     return entry
+
+
+def _item_turn_id(item) -> str:
+    return item.id or f"turn-{uuid4().hex}"
+
+
+def _run_id_from_job(ctx: agents.JobContext) -> str | None:
+    raw = getattr(ctx.job, "metadata", "") or ""
+    if not raw:
+        return None
+
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return sanitize_run_id(raw)
+
+    if not isinstance(payload, dict):
+        return None
+    return sanitize_run_id(payload.get("run_id"))
+
+
+def _config_snapshot() -> dict:
+    return {
+        "stt": {
+            "language": settings.stt_language,
+            "stream_type": settings.stt_stream_type,
+            "mode": settings.stt_mode,
+            "endpointing": settings.stt_endpointing,
+        },
+        "llm": {"model": settings.llm_model},
+        "tts": {
+            "language": settings.tts_language,
+            "model": settings.tts_model,
+            "speaker": settings.tts_speaker,
+            "pace": settings.tts_pace,
+            "min_buffer_size": settings.tts_min_buffer_size,
+            "max_chunk_length": settings.tts_max_chunk_length,
+        },
+        "turn_handling": {
+            "min_endpointing_delay": settings.min_endpointing_delay,
+            "max_endpointing_delay": settings.max_endpointing_delay,
+            "interruption_min_duration": settings.interruption_min_duration,
+            "preemptive_tts": settings.preemptive_tts,
+        },
+    }
 
 
 class ClinicReceptionist(Agent):
@@ -229,6 +273,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     await _ensure_database()
 
     call_id = str(uuid4())
+    run_id = _run_id_from_job(ctx)
     today = datetime.now(CLINIC_TZ).date().isoformat()
 
     try:
@@ -236,12 +281,19 @@ async def clinic_receptionist(ctx: agents.JobContext):
             {
                 "call_id": call_id,
                 "room_name": ctx.room.name,
+                "run_id": run_id,
                 "started_at": datetime.now(timezone.utc),
                 "ended_at": None,
                 "transcript": [],
+                "tool_calls": [],
+                "barge_in_count": 0,
+                "speech_count": 0,
                 "booking_outcome": "not_booked",
                 "appointment_id": None,
                 "analysis_status": "pending",
+                "analysis_attempts": 0,
+                "analysis_locked_at": None,
+                "agent_config": _config_snapshot(),
             }
         )
     except Exception:
@@ -252,25 +304,44 @@ async def clinic_receptionist(ctx: agents.JobContext):
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
         stt=sarvam.STTRealtime(
-            language="hi-IN",
-            stream_type="balanced",
-            mode="codemix",
+            language=settings.stt_language,
+            stream_type=settings.stt_stream_type,
+            mode=settings.stt_mode,
+            endpointing=settings.stt_endpointing,
         ),
-        llm=sarvam.LLM(model="sarvam-105b"),
+        llm=sarvam.LLM(model=settings.llm_model),
         tts=sarvam.TTS(
-            target_language_code="hi-IN",
-            model="bulbul:v3",
-            speaker="shubh",
-            pace=1.0,
-            min_buffer_size=50,
-            max_chunk_length=150,
+            target_language_code=settings.tts_language,
+            model=settings.tts_model,
+            speaker=settings.tts_speaker,
+            pace=settings.tts_pace,
+            min_buffer_size=settings.tts_min_buffer_size,
+            max_chunk_length=settings.tts_max_chunk_length,
         ),
+        turn_handling={
+            "endpointing": {
+                "mode": "fixed",
+                "min_delay": settings.min_endpointing_delay,
+                "max_delay": settings.max_endpointing_delay,
+            },
+            "interruption": {
+                "enabled": True,
+                "min_duration": settings.interruption_min_duration,
+                "min_words": 0,
+                "resume_false_interruption": True,
+            },
+            "preemptive_generation": {
+                "enabled": True,
+                "preemptive_tts": settings.preemptive_tts,
+            },
+        },
     )
 
     # All transcript/metric writes go through one ordered queue, so a turn is
     # always inserted before its reply updates it (no races between events).
     jobs: asyncio.Queue[tuple] = asyncio.Queue()
     publish_jobs: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
+    speech_handles: list = []
     last_user_item_id: str | None = None
     persisted_message_ids: set[str] = set()
 
@@ -295,13 +366,15 @@ async def clinic_receptionist(ctx: agents.JobContext):
     async def handle_item(item: ChatMessage, metrics: dict) -> None:
         nonlocal last_user_item_id
         text = (item.text_content or "").strip()
+        turn_id = _item_turn_id(item)
 
         if item.role == "user":
-            last_user_item_id = item.id
+            last_user_item_id = turn_id
             await call_turns.update_one(
-                {"call_id": call_id, "turn_id": item.id},
+                {"call_id": call_id, "turn_id": turn_id},
                 {
                     "$set": {
+                        "run_id": run_id,
                         "endpoint_latency_ms": _milliseconds(
                             metrics.get("end_of_turn_delay")
                         ),
@@ -324,14 +397,14 @@ async def clinic_receptionist(ctx: agents.JobContext):
             )
             return
 
-        if text and item.id and item.id not in persisted_message_ids:
-            persisted_message_ids.add(item.id)
+        if text and turn_id not in persisted_message_ids:
+            persisted_message_ids.add(turn_id)
             await calls.update_one(
                 {"call_id": call_id},
                 {
                     "$push": {
                         "transcript": _transcript_entry(
-                            "assistant", text, item.id
+                            "assistant", text, turn_id
                         )
                     }
                 },
@@ -341,9 +414,10 @@ async def clinic_receptionist(ctx: agents.JobContext):
         # Keep the reply as its own row so each side's latency stays truthful:
         # caller rows carry endpoint/STT, assistant rows carry LLM/TTS/E2E.
         await call_turns.update_one(
-            {"call_id": call_id, "turn_id": item.id},
+            {"call_id": call_id, "turn_id": turn_id},
             {
                 "$set": {
+                    "run_id": run_id,
                     "llm_latency_ms": _milliseconds(
                         metrics.get("llm_node_ttft")
                     ),
@@ -385,6 +459,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
                             }
                         },
                     )
+                elif job[0] == "tools":
+                    await calls.update_one(
+                        {"call_id": call_id},
+                        {"$push": {"tool_calls": {"$each": job[1]}}},
+                    )
             except Exception:
                 logger.exception("Failed to persist %s for %s", job[0], call_id)
             finally:
@@ -411,6 +490,27 @@ async def clinic_receptionist(ctx: agents.JobContext):
         if isinstance(item, ChatMessage):
             jobs.put_nowait(("item", item, dict(item.metrics or {})))
 
+    @session.on("function_tools_executed")
+    def on_function_tools_executed(event):
+        timestamp = datetime.now(timezone.utc)
+        entries = [
+            {
+                "call_id": call.call_id,
+                "name": call.name,
+                "arguments": call.arguments,
+                "output": output.output,
+                "is_error": bool(output.is_error),
+                "timestamp": timestamp,
+            }
+            for call, output in event.zipped()
+        ]
+        if entries:
+            jobs.put_nowait(("tools", entries))
+
+    @session.on("speech_created")
+    def on_speech_created(event):
+        speech_handles.append(event.speech_handle)
+
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(event):
         text = (event.transcript or "").strip()
@@ -424,8 +524,8 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
     async def finalize(_reason: str) -> None:
         with contextlib.suppress(Exception):
-            await jobs.join()
-            await publish_jobs.join()
+            await asyncio.wait_for(jobs.join(), timeout=5)
+            await asyncio.wait_for(publish_jobs.join(), timeout=5)
 
         worker_task.cancel()
         publish_task.cancel()
@@ -434,23 +534,32 @@ async def clinic_receptionist(ctx: agents.JobContext):
         with contextlib.suppress(asyncio.CancelledError):
             await publish_task
 
+        barge_in_count = sum(
+            1 for handle in speech_handles if handle.interrupted
+        )
+
         try:
             await calls.update_one(
                 {"call_id": call_id},
-                {"$set": {"ended_at": datetime.now(timezone.utc)}},
+                {
+                    "$set": {
+                        "ended_at": datetime.now(timezone.utc),
+                        "barge_in_count": barge_in_count,
+                        "speech_count": len(speech_handles),
+                        "analysis_status": "pending",
+                        "analysis_locked_at": None,
+                    }
+                },
             )
         except Exception:
-            logger.exception("Could not save call end time")
+            logger.exception("Could not save call end state")
 
-        try:
-            await process_call(call_id)
-        except Exception:
-            logger.exception("Call analysis failed: %s", call_id)
-            with contextlib.suppress(Exception):
-                await calls.update_one(
-                    {"call_id": call_id},
-                    {"$set": {"analysis_status": "failed"}},
-                )
+        logger.info(
+            "Call %s ended (barge-ins=%s, speech turns=%s)",
+            call_id,
+            barge_in_count,
+            len(speech_handles),
+        )
 
     ctx.add_shutdown_callback(finalize)
 

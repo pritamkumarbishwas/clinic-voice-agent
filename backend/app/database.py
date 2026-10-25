@@ -26,6 +26,7 @@ slots = db["slots"]
 appointments = db["appointments"]
 calls = db["calls"]
 call_turns = db["call_turns"]
+benchmark_runs = db["benchmark_runs"]
 
 
 async def initialize_database() -> None:
@@ -45,12 +46,17 @@ async def initialize_database() -> None:
     await calls.create_index([("call_id", ASCENDING)], unique=True)
     await calls.create_index([("started_at", DESCENDING)])
     await calls.create_index([("analysis_status", ASCENDING)])
+    await calls.create_index([("run_id", ASCENDING), ("started_at", DESCENDING)])
 
     await call_turns.create_index(
         [("call_id", ASCENDING), ("started_at", ASCENDING)]
     )
     await call_turns.create_index([("call_id", ASCENDING), ("turn_id", ASCENDING)])
     await call_turns.create_index([("started_at", DESCENDING)])
+    await call_turns.create_index([("run_id", ASCENDING), ("started_at", DESCENDING)])
+
+    await benchmark_runs.create_index([("run_id", ASCENDING)], unique=True)
+    await benchmark_runs.create_index([("created_at", DESCENDING)])
 
 
 async def close_database() -> None:

@@ -42,6 +42,7 @@ export default function LiveCall() {
   const [status, setStatus] = useState("Disconnected");
   const [transcripts, setTranscripts] = useState([]);
   const [error, setError] = useState("");
+  const [runLabel, setRunLabel] = useState("");
 
   function attachAudio(track) {
     if (track.kind !== Track.Kind.Audio) return;
@@ -88,10 +89,14 @@ export default function LiveCall() {
       setError("");
       setStatus("Requesting token...");
 
-      const { serverUrl, token, roomName } = await apiGet(
-        "/api/generate-token",
-        { signal: controller.signal }
-      );
+      const trimmedRun = runLabel.trim();
+      const tokenPath = trimmedRun
+        ? `/api/generate-token?run_id=${encodeURIComponent(trimmedRun)}`
+        : "/api/generate-token";
+
+      const { serverUrl, token, roomName } = await apiGet(tokenPath, {
+        signal: controller.signal,
+      });
 
       if (controller.signal.aborted) return;
 
@@ -267,6 +272,22 @@ export default function LiveCall() {
             </button>
           </div>
         )}
+
+        <label className="run-filter">
+          <span>Test run label (optional)</span>
+          <input
+            type="text"
+            value={runLabel}
+            onChange={(event) => setRunLabel(event.target.value)}
+            placeholder="e.g. baseline-1"
+            maxLength={48}
+            disabled={isConnecting || isConnected}
+          />
+          <small>
+            Use the same label for 20 benchmark calls so their latency is
+            reported together.
+          </small>
+        </label>
 
         <div className="actions">
           <button

@@ -5,4 +5,6 @@ livekit-api>=1.0,<2
 livekit-agents[silero,sarvam]~=1.8
 motor>=3.6,<4
 pymongo>=4.9,<5
+openai>=2,<4
+pydantic>=2,<3
 tzdata>=2024.1

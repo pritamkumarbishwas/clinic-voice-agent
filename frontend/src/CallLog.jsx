@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiGet } from "./lib/api";
+import { apiGet, apiPost } from "./lib/api";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -32,12 +32,20 @@ export default function CallLog() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
+  const [runFilter, setRunFilter] = useState("");
+  const [appliedRun, setAppliedRun] = useState("");
+  const [analysisRetrying, setAnalysisRetrying] = useState(false);
   const detailAbortRef = useRef(null);
 
   useEffect(() => {
     const controller = new AbortController();
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: "20",
+    });
+    if (appliedRun) params.set("run_id", appliedRun);
 
-    apiGet(`/api/calls?page=${page}&page_size=20`, {
+    apiGet(`/api/calls?${params.toString()}`, {
       signal: controller.signal,
     })
       .then((data) => {
@@ -53,7 +61,7 @@ export default function CallLog() {
       });
 
     return () => controller.abort();
-  }, [page, reloadKey]);
+  }, [page, reloadKey, appliedRun]);
 
   useEffect(() => {
     return () => detailAbortRef.current?.abort();
@@ -96,6 +104,47 @@ export default function CallLog() {
     setPage(nextPage);
   }
 
+  function applyRunFilter(event) {
+    event.preventDefault();
+    setSelected(null);
+    setLoading(true);
+    setPage(1);
+    setAppliedRun(runFilter.trim());
+  }
+
+  function clearRunFilter() {
+    setSelected(null);
+    setLoading(true);
+    setPage(1);
+    setRunFilter("");
+    setAppliedRun("");
+  }
+
+  async function retryAnalysis(callId) {
+    setAnalysisRetrying(true);
+    setError("");
+
+    try {
+      await apiPost(`/api/calls/${encodeURIComponent(callId)}/analyze`);
+      setSelected((previous) =>
+        previous
+          ? {
+              ...previous,
+              call: {
+                ...previous.call,
+                analysis_status: "pending",
+                analysis_error: null,
+              },
+            }
+          : previous
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAnalysisRetrying(false);
+    }
+  }
+
   const call = selected?.call;
   const appointment = selected?.appointment;
   const turns = selected?.turn_metrics ?? [];
@@ -113,6 +162,29 @@ export default function CallLog() {
           Refresh
         </button>
       </header>
+
+      <form className="run-filter" onSubmit={applyRunFilter}>
+        <span>Filter by test run</span>
+        <input
+          type="text"
+          value={runFilter}
+          onChange={(event) => setRunFilter(event.target.value)}
+          placeholder="e.g. baseline-1"
+          maxLength={48}
+        />
+        <button type="submit">Apply</button>
+        {appliedRun && (
+          <button type="button" className="secondary" onClick={clearRunFilter}>
+            Clear
+          </button>
+        )}
+      </form>
+
+      {appliedRun && (
+        <p className="muted">
+          Showing calls tagged <strong>{appliedRun}</strong>
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="error">
@@ -200,6 +272,22 @@ export default function CallLog() {
               <dd>{call.sentiment || "Pending"}</dd>
             </div>
             <div>
+              <dt>Intent</dt>
+              <dd>{call.intent || "—"}</dd>
+            </div>
+            <div>
+              <dt>Barge-ins</dt>
+              <dd>{call.barge_in_count ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Speech turns</dt>
+              <dd>{call.speech_count ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Analysis</dt>
+              <dd>{call.analysis_status || "pending"}</dd>
+            </div>
+            <div>
               <dt>Appointment</dt>
               <dd>{call.appointment_id || "Not booked"}</dd>
             </div>
@@ -210,8 +298,35 @@ export default function CallLog() {
           </dl>
 
           <p className="summary">
-            <strong>Summary:</strong> {call.summary || "Not analyzed yet"}
+            <strong>Summary:</strong>{" "}
+            {call.summary ||
+              (call.analysis_status === "completed"
+                ? "No summary recorded."
+                : "Analysis pending.")}
           </p>
+
+          {call.follow_up && (
+            <p className="summary">
+              <strong>Follow-up:</strong> {call.follow_up}
+            </p>
+          )}
+
+          {call.analysis_error && (
+            <p className="error">
+              <strong>Analysis error:</strong> {call.analysis_error}
+            </p>
+          )}
+
+          {call.analysis_status !== "completed" && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => retryAnalysis(call.call_id)}
+              disabled={analysisRetrying}
+            >
+              {analysisRetrying ? "Requeueing..." : "Retry analysis"}
+            </button>
+          )}
 
           {appointment && (
             <div className="appointment-card">
@@ -224,6 +339,31 @@ export default function CallLog() {
                 {formatDate(appointment.start_at)}
               </p>
               <p className="muted">Status: {appointment.status}</p>
+            </div>
+          )}
+
+          <h3>Tool calls</h3>
+
+          {(call.tool_calls || []).length === 0 ? (
+            <p className="muted">No tool calls recorded.</p>
+          ) : (
+            <div className="tool-calls">
+              {(call.tool_calls || []).map((tool, index) => (
+                <article
+                  className="tool-call"
+                  key={`${tool.call_id}-${index}`}
+                >
+                  <strong>{tool.name || "tool"}</strong>
+                  <small>{formatDate(tool.timestamp)}</small>
+                  {tool.arguments && (
+                    <pre>Arguments: {tool.arguments}</pre>
+                  )}
+                  {tool.output && <pre>Result: {tool.output}</pre>}
+                  {tool.is_error && (
+                    <span className="error">Tool reported an error</span>
+                  )}
+                </article>
+              ))}
             </div>
           )}
 

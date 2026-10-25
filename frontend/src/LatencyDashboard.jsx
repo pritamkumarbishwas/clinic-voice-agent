@@ -11,6 +11,8 @@ const LABELS = {
 
 export default function LatencyDashboard() {
   const [report, setReport] = useState({});
+  const [runs, setRuns] = useState([]);
+  const [runId, setRunId] = useState("");
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
@@ -18,9 +20,24 @@ export default function LatencyDashboard() {
   useEffect(() => {
     const controller = new AbortController();
 
-    apiGet("/api/analytics/latency", { signal: controller.signal })
+    apiGet("/api/analytics/runs", { signal: controller.signal })
+      .then((data) => setRuns(data.items ?? []))
+      .catch((err) => {
+        if (err.name !== "AbortError") setError(err.message);
+      });
+
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const path = runId
+      ? `/api/analytics/latency?run_id=${encodeURIComponent(runId)}`
+      : "/api/analytics/latency";
+
+    apiGet(path, { signal: controller.signal })
       .then((data) => {
-        setReport(data.metrics ?? {});
+        setReport(data);
         setError("");
       })
       .catch((err) => {
@@ -31,17 +48,19 @@ export default function LatencyDashboard() {
       });
 
     return () => controller.abort();
-  }, [reloadKey]);
+  }, [reloadKey, runId]);
 
   function refresh() {
     setLoading(true);
     setReloadKey((value) => value + 1);
   }
 
+  const metrics = report.metrics ?? {};
+
   const rows = Object.entries(LABELS).map(([key, label]) => ({
     key,
     label,
-    ...(report[key] || {}),
+    ...(metrics[key] || {}),
   }));
 
   const slowest = rows
@@ -61,9 +80,26 @@ export default function LatencyDashboard() {
           <p>Measurements from recorded conversation turns.</p>
         </div>
 
-        <button type="button" onClick={refresh}>
-          Refresh
-        </button>
+        <div className="run-filter">
+          <span>Benchmark run</span>
+          <select
+            value={runId}
+            onChange={(event) => {
+              setLoading(true);
+              setRunId(event.target.value);
+            }}
+          >
+            <option value="">All calls</option>
+            {runs.map((run) => (
+              <option key={run.run_id} value={run.run_id}>
+                {run.run_id} ({run.call_count} calls)
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={refresh}>
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -77,14 +113,23 @@ export default function LatencyDashboard() {
       ) : (
         <>
           <p className="muted">
-            {totalSamples} turns measured ·{" "}
+            {report.calls_measured ?? 0} calls · {totalSamples} turns
+            measured · {report.barge_in_count ?? 0} barge-ins
+            {typeof report.booking_success_rate === "number" && (
+              <>
+                {" "}
+                · booking success{" "}
+                {Math.round(report.booking_success_rate * 100)}%
+              </>
+            )}
             {slowest ? (
               <>
-                <strong>Largest p95 stage:</strong> {slowest.label} (
+                {" "}
+                · <strong>Largest p95 stage:</strong> {slowest.label} (
                 {slowest.p95_ms} ms)
               </>
             ) : (
-              "No samples yet."
+              " · No samples yet."
             )}
           </p>
 

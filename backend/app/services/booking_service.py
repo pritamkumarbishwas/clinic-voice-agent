@@ -1,19 +1,18 @@
 import logging
-import os
 import re
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import ReturnDocument
 from pymongo.errors import PyMongoError
 
+from app.config import settings
 from app.database import appointments, calls, client, doctors, slots
 
 logger = logging.getLogger("clinic-booking")
 
-CLINIC_TZ = ZoneInfo(os.getenv("CLINIC_TIMEZONE", "Asia/Kolkata"))
+CLINIC_TZ = settings.clinic_timezone
 MAX_SLOTS_PER_DATE = 15
 
 _PHONE_PATTERN = re.compile(r"^\+?\d{10,15}$")
