@@ -5,6 +5,7 @@ export const API_URL = (
 export async function apiGet(path, { signal } = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     signal,
+    cache: "no-store",
     headers: { Accept: "application/json" },
   });
 

@@ -158,7 +158,7 @@ async def get_call(call_id: str):
     )
     appointment = await appointments.find_one(
         {"call_id": call_id},
-        {"_id": 0},
+        {"_id": 0, "slot_id": 0, "doctor_id": 0},
     )
 
     return {

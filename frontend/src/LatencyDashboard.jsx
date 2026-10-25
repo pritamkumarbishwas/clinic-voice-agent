@@ -77,7 +77,7 @@ export default function LatencyDashboard() {
       ) : (
         <>
           <p className="muted">
-            {totalSamples} samples ·{" "}
+            {totalSamples} turns measured ·{" "}
             {slowest ? (
               <>
                 <strong>Largest p95 stage:</strong> {slowest.label} (

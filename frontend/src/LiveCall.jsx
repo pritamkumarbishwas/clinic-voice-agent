@@ -101,8 +101,7 @@ export default function LiveCall() {
       room.on(RoomEvent.TrackSubscribed, attachAudio);
       room.on(RoomEvent.TrackUnsubscribed, detachAudio);
 
-      room.on(RoomEvent.DataReceived, (payload, ...eventArgs) => {
-        const topic = eventArgs[2];
+      room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
         if (topic !== "transcripts") return;
 
         try {

@@ -37,7 +37,12 @@ TRANSCRIPT_TOPIC = "transcripts"
 AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
 
-server = AgentServer()
+def prewarm(proc) -> None:
+    """Load the VAD once per worker process instead of once per call."""
+    proc.userdata["vad"] = silero.VAD.load()
+
+
+server = AgentServer(setup_fnc=prewarm)
 
 _db_ready = False
 _db_lock = asyncio.Lock()
@@ -59,7 +64,7 @@ SYSTEM_PROMPT = """
 You are a polite AI clinic receptionist.
 You must identify yourself as an AI receptionist when greeting the caller.
 
-Today's date is {today} in the clinic timezone (Asia/Kolkata).
+Today's date is {today} in the clinic timezone ({timezone}).
 The clinic is open from 10:00 to 17:00 local time.
 
 LANGUAGE
@@ -123,7 +128,12 @@ def _transcript_entry(role: str, text: str, message_id: str | None = None) -> di
 
 class ClinicReceptionist(Agent):
     def __init__(self, call_id: str, today: str):
-        super().__init__(instructions=SYSTEM_PROMPT.format(today=today))
+        super().__init__(
+            instructions=SYSTEM_PROMPT.format(
+                today=today,
+                timezone=CLINIC_TZ.key,
+            )
+        )
         self.call_id = call_id
 
     @function_tool()
@@ -221,21 +231,26 @@ async def clinic_receptionist(ctx: agents.JobContext):
     call_id = str(uuid4())
     today = datetime.now(CLINIC_TZ).date().isoformat()
 
-    await calls.insert_one(
-        {
-            "call_id": call_id,
-            "room_name": ctx.room.name,
-            "started_at": datetime.now(timezone.utc),
-            "ended_at": None,
-            "transcript": [],
-            "booking_outcome": "not_booked",
-            "appointment_id": None,
-            "analysis_status": "pending",
-        }
-    )
+    try:
+        await calls.insert_one(
+            {
+                "call_id": call_id,
+                "room_name": ctx.room.name,
+                "started_at": datetime.now(timezone.utc),
+                "ended_at": None,
+                "transcript": [],
+                "booking_outcome": "not_booked",
+                "appointment_id": None,
+                "analysis_status": "pending",
+            }
+        )
+    except Exception:
+        logger.exception("Could not create the call record for %s", ctx.room.name)
+        ctx.shutdown("database unavailable")
+        return
 
     session = AgentSession(
-        vad=silero.VAD.load(),
+        vad=ctx.proc.userdata["vad"],
         stt=sarvam.STTRealtime(
             language="hi-IN",
             stream_type="balanced",
@@ -417,10 +432,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
             await process_call(call_id)
         except Exception:
             logger.exception("Call analysis failed: %s", call_id)
-            await calls.update_one(
-                {"call_id": call_id},
-                {"$set": {"analysis_status": "failed"}},
-            )
+            with contextlib.suppress(Exception):
+                await calls.update_one(
+                    {"call_id": call_id},
+                    {"$set": {"analysis_status": "failed"}},
+                )
 
     ctx.add_shutdown_callback(finalize)
 
