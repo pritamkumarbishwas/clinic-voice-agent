@@ -19,14 +19,20 @@ function toDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function formatWithUpperPeriod(formatter, date) {
+  return formatter
+    .format(date)
+    .replace(/\b(am|pm)\b/gi, (period) => period.toUpperCase());
+}
+
 export function formatDateTime(value) {
   const date = toDate(value);
-  return date ? dateTimeFormatter.format(date) : "n/a";
+  return date ? formatWithUpperPeriod(dateTimeFormatter, date) : "n/a";
 }
 
 export function formatTime(value) {
   const date = toDate(value);
-  return date ? timeFormatter.format(date) : "n/a";
+  return date ? formatWithUpperPeriod(timeFormatter, date) : "n/a";
 }
 
 export function formatDuration(seconds) {
@@ -72,6 +78,10 @@ export function titleCase(value) {
   return String(value)
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+export function pluralize(count, singular, plural) {
+  return count === 1 ? singular : plural || `${singular}s`;
 }
 
 export function truncate(value, length = 42) {

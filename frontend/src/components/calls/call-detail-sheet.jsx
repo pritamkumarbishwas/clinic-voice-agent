@@ -46,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const TAB_CLASS =
-  "h-11 flex-none gap-1.5 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-2 text-[11px] sm:px-3 sm:text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
+  "h-11 flex-none cursor-pointer gap-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1.5 text-[11px] sm:gap-1.5 sm:px-3 sm:text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none";
 
 function prettyValue(value) {
   if (value === null || value === undefined || value === "") return "";

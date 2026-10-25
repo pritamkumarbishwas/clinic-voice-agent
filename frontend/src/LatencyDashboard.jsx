@@ -46,6 +46,7 @@ import {
   formatMs,
   formatNumber,
   formatPercent,
+  pluralize,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +78,7 @@ function barTone(value) {
 function LatencySkeleton() {
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="rounded-2xl border bg-card p-5">
             <Skeleton className="h-3 w-24" />
@@ -200,7 +201,8 @@ export default function LatencyDashboard() {
                 <SelectItem value="all">All calls</SelectItem>
                 {runs.map((run) => (
                   <SelectItem key={run.run_id} value={run.run_id}>
-                    {run.run_id} ({run.call_count} calls)
+                    {run.run_id} ({run.call_count}{" "}
+                    {pluralize(run.call_count, "call")})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -211,6 +213,7 @@ export default function LatencyDashboard() {
               variant="outline"
               onClick={refresh}
               disabled={loading}
+              className="w-full sm:w-auto"
             >
               <RefreshCw className={cn(loading && "animate-spin")} />
               Refresh
@@ -242,7 +245,7 @@ export default function LatencyDashboard() {
         <LatencySkeleton />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <MetricCard
               icon={PhoneCall}
               label="Calls measured"
@@ -261,7 +264,7 @@ export default function LatencyDashboard() {
               icon={CalendarCheck2}
               label="Booking success"
               value={formatPercent(report.booking_success_rate)}
-              hint={`${formatNumber(report.booking_successes ?? 0)} booked appointments`}
+              hint={`${formatNumber(report.booking_successes ?? 0)} booked ${pluralize(report.booking_successes ?? 0, "appointment")}`}
               tone="success"
             />
             <MetricCard
@@ -277,6 +280,7 @@ export default function LatencyDashboard() {
               value={slowest ? formatMs(slowest.p95_ms) : "n/a"}
               hint={slowest?.label || "No stage samples yet"}
               tone="destructive"
+              className="col-span-2 md:col-span-1"
             />
           </div>
 
@@ -301,48 +305,104 @@ export default function LatencyDashboard() {
               </CardHeader>
 
               <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead className="pl-5">Stage</TableHead>
-                      <TableHead className="text-right">Samples</TableHead>
-                      <TableHead className="text-right">p50</TableHead>
-                      <TableHead className="text-right">p95</TableHead>
-                      <TableHead className="text-right">p99</TableHead>
-                      <TableHead className="pr-5 text-right">Health</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((row) => {
-                      const tone = p95Tone(row.p95_ms);
-                      return (
-                        <TableRow key={row.key}>
-                          <TableCell className="min-w-52 pl-5">
+                <div className="divide-y divide-border/70 md:hidden">
+                  {rows.map((row) => {
+                    const tone = p95Tone(row.p95_ms);
+                    return (
+                      <div key={row.key} className="px-5 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
                             <p className="text-xs font-semibold">{row.label}</p>
                             <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                               {row.key}
                             </p>
-                          </TableCell>
-                          <TableCell className="text-right text-xs text-muted-foreground">
-                            {formatNumber(row.count ?? 0)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs tabular-nums">
-                            {formatMs(row.p50_ms)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs font-semibold tabular-nums">
-                            {formatMs(row.p95_ms)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-                            {formatMs(row.p99_ms)}
-                          </TableCell>
-                          <TableCell className="pr-5 text-right">
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              {formatNumber(row.count ?? 0)}{" "}
+                              {pluralize(row.count ?? 0, "sample")}
+                            </span>
                             <Badge variant={tone.variant}>{tone.label}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-2.5">
+                          {[
+                            ["p50", row.p50_ms],
+                            ["p95", row.p95_ms],
+                            ["p99", row.p99_ms],
+                          ].map(([label, value], index) => (
+                            <div
+                              key={label}
+                              className={cn(
+                                "text-center",
+                                index === 1 && "border-x border-border/70"
+                              )}
+                            >
+                              <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
+                                {label}
+                              </p>
+                              <p
+                                className={cn(
+                                  "mt-0.5 font-mono text-xs tabular-nums",
+                                  index === 1
+                                    ? "font-semibold"
+                                    : "text-muted-foreground"
+                                )}
+                              >
+                                {formatMs(value)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableHead className="pl-5">Stage</TableHead>
+                        <TableHead className="text-right">Samples</TableHead>
+                        <TableHead className="text-right">p50</TableHead>
+                        <TableHead className="text-right">p95</TableHead>
+                        <TableHead className="text-right">p99</TableHead>
+                        <TableHead className="pr-5 text-right">Health</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => {
+                        const tone = p95Tone(row.p95_ms);
+                        return (
+                          <TableRow key={row.key}>
+                            <TableCell className="min-w-52 pl-5">
+                              <p className="text-xs font-semibold">{row.label}</p>
+                              <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                                {row.key}
+                              </p>
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">
+                              {formatNumber(row.count ?? 0)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {formatMs(row.p50_ms)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs font-semibold tabular-nums">
+                              {formatMs(row.p95_ms)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">
+                              {formatMs(row.p99_ms)}
+                            </TableCell>
+                            <TableCell className="pr-5 text-right">
+                              <Badge variant={tone.variant}>{tone.label}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
 
@@ -388,7 +448,9 @@ export default function LatencyDashboard() {
                     latency.
                   </CardDescription>
                 </div>
-                <Badge variant="outline">{perCall.length} calls</Badge>
+                <Badge variant="outline">
+                  {perCall.length} {pluralize(perCall.length, "call")}
+                </Badge>
               </div>
             </CardHeader>
 
@@ -403,31 +465,19 @@ export default function LatencyDashboard() {
                   />
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/30 hover:bg-muted/30">
-                      <TableHead className="pl-5">Call</TableHead>
-                      <TableHead>Run</TableHead>
-                      <TableHead className="text-right">Turns</TableHead>
-                      <TableHead className="text-right">E2E p50</TableHead>
-                      <TableHead className="text-right">LLM p50</TableHead>
-                      <TableHead className="pr-5 text-right">TTS p50</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  <div className="divide-y divide-border/70 md:hidden">
                     {perCall.slice(0, 10).map((call) => (
-                      <TableRow key={call.call_id}>
-                        <TableCell className="max-w-[22rem] pl-5">
+                      <div key={call.call_id} className="px-5 py-4">
+                        <div className="flex items-center justify-between gap-3">
                           <p
                             className="truncate font-mono text-xs font-semibold"
                             title={call.call_id}
                           >
                             {call.call_id}
                           </p>
-                        </TableCell>
-                        <TableCell>
                           {call.run_id ? (
-                            <Badge variant="outline" className="text-[9px]">
+                            <Badge variant="outline" className="shrink-0 text-[9px]">
                               {call.run_id}
                             </Badge>
                           ) : (
@@ -435,23 +485,88 @@ export default function LatencyDashboard() {
                               n/a
                             </span>
                           )}
-                        </TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">
-                          {formatNumber(call.turns ?? 0)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs font-semibold tabular-nums">
-                          {formatMs(call.end_to_audio_ms)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">
-                          {formatMs(call.llm_latency_ms)}
-                        </TableCell>
-                        <TableCell className="pr-5 text-right font-mono text-xs tabular-nums">
-                          {formatMs(call.tts_latency_ms)}
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          {[
+                            ["Turns", formatNumber(call.turns ?? 0)],
+                            ["E2E p50", formatMs(call.end_to_audio_ms)],
+                            ["LLM p50", formatMs(call.llm_latency_ms)],
+                            ["TTS p50", formatMs(call.tts_latency_ms)],
+                          ].map(([label, value], index) => (
+                            <div
+                              key={label}
+                              className="rounded-lg bg-muted/40 px-3 py-2"
+                            >
+                              <p className="text-[9px] font-semibold tracking-wider text-muted-foreground uppercase">
+                                {label}
+                              </p>
+                              <p
+                                className={cn(
+                                  "mt-0.5 font-mono text-xs tabular-nums",
+                                  index === 0 && "text-muted-foreground"
+                                )}
+                              >
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableHead className="pl-5">Call</TableHead>
+                          <TableHead>Run</TableHead>
+                          <TableHead className="text-right">Turns</TableHead>
+                          <TableHead className="text-right">E2E p50</TableHead>
+                          <TableHead className="text-right">LLM p50</TableHead>
+                          <TableHead className="pr-5 text-right">TTS p50</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {perCall.slice(0, 10).map((call) => (
+                          <TableRow key={call.call_id}>
+                            <TableCell className="max-w-[22rem] pl-5">
+                              <p
+                                className="truncate font-mono text-xs font-semibold"
+                                title={call.call_id}
+                              >
+                                {call.call_id}
+                              </p>
+                            </TableCell>
+                            <TableCell>
+                              {call.run_id ? (
+                                <Badge variant="outline" className="text-[9px]">
+                                  {call.run_id}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  n/a
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">
+                              {formatNumber(call.turns ?? 0)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs font-semibold tabular-nums">
+                              {formatMs(call.end_to_audio_ms)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {formatMs(call.llm_latency_ms)}
+                            </TableCell>
+                            <TableCell className="pr-5 text-right font-mono text-xs tabular-nums">
+                              {formatMs(call.tts_latency_ms)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

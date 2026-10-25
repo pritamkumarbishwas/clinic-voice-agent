@@ -12,14 +12,14 @@ export const NAV_ITEMS = [
     id: "calls",
     label: "Call log",
     shortLabel: "Calls",
-    description: "Review conversations and outcomes",
+    description: "Outcomes and transcripts",
     icon: History,
   },
   {
     id: "latency",
     label: "Latency",
     shortLabel: "Latency",
-    description: "Inspect speech and response timings",
+    description: "Speech and response timings",
     icon: Gauge,
   },
 ];

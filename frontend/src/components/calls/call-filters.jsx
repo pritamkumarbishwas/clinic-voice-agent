@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { pluralize } from "@/lib/format";
 
 function FilterSelect({ id, label, value, onChange, children }) {
   return (
@@ -58,7 +59,8 @@ function CallFilters({
             <SelectItem value="all">All runs</SelectItem>
             {runs.map((run) => (
               <SelectItem key={run.run_id} value={run.run_id}>
-                {run.run_id} ({run.call_count} calls)
+                {run.run_id} ({run.call_count}{" "}
+                {pluralize(run.call_count, "call")})
               </SelectItem>
             ))}
           </FilterSelect>

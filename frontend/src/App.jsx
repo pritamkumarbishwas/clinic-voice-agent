@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -30,6 +30,10 @@ function ViewFallback() {
 export default function App() {
   const [view, setView] = useState("live");
   const { status, check } = useApiHealth();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view]);
 
   return (
     <ThemeProvider>

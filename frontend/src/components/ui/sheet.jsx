@@ -53,7 +53,7 @@ function SheetContent({ className, children, side = "right", ...props }) {
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute top-4 right-4 rounded-lg p-1.5 text-muted-foreground opacity-80 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none">
+        <SheetPrimitive.Close className="absolute top-4 right-4 cursor-pointer rounded-lg p-1.5 text-muted-foreground opacity-80 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none">
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

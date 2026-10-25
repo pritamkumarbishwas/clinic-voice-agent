@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiGet, apiPost } from "@/lib/api";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export default function CallLog({ onGoLive }) {
@@ -220,7 +220,7 @@ export default function CallLog({ onGoLive }) {
         actions={
           <>
             <Badge variant="outline" className="px-3 py-1">
-              {formatNumber(total)} calls
+              {formatNumber(total)} {pluralize(total, "call")}
             </Badge>
             <Button
               type="button"
@@ -298,7 +298,8 @@ export default function CallLog({ onGoLive }) {
       {!loading && calls.length > 0 && (
         <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card px-4 py-3 sm:flex-row">
           <p className="text-xs text-muted-foreground">
-            Page {page} of {pages} · {formatNumber(total)} calls
+            Page {page} of {pages} · {formatNumber(total)}{" "}
+            {pluralize(total, "call")}
           </p>
           <div className="flex w-full gap-2 sm:w-auto">
             <Button

@@ -29,7 +29,7 @@ const PHASES = {
     ring: "border-primary/20",
   },
   ended: {
-    title: "Call ended",
+    title: "Thanks for calling",
     icon: PhoneOff,
     core: "border-border bg-muted text-muted-foreground",
     ring: "border-border",

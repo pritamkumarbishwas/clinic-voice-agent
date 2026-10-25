@@ -28,7 +28,7 @@ function Sidebar({ view, onChange }) {
                 onClick={() => onChange(item.id)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none",
+                  "group flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs"
                     : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"

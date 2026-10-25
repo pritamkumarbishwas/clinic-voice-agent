@@ -132,6 +132,7 @@ export default function LiveCall() {
     setIsConnecting(true);
     setTranscripts([]);
     setElapsed(0);
+    transcriptPinnedRef.current = true;
 
     const controller = new AbortController();
     startAbortRef.current = controller;

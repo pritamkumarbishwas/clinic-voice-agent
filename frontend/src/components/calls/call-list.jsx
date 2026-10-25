@@ -107,7 +107,7 @@ function CallList({ calls, onOpenCall }) {
             key={call.call_id}
             type="button"
             onClick={() => onOpenCall(call.call_id)}
-            className="w-full rounded-2xl border border-border/80 bg-card p-4 text-left shadow-xs transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="w-full cursor-pointer rounded-2xl border border-border/80 bg-card p-4 text-left shadow-xs transition-colors hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
