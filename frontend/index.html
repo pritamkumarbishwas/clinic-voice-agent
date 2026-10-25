@@ -8,8 +8,28 @@
       name="description"
       content="AI clinic receptionist for appointment booking and call analytics."
     />
-    <meta name="theme-color" content="#f4f7fb" />
+    <meta name="theme-color" content="#f7fbfa" />
     <title>Clinic Voice AI</title>
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("clinic-theme");
+          var dark =
+            stored === "dark" ||
+            (!stored &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+          if (dark) document.documentElement.classList.add("dark");
+
+          var themeColor = document.querySelector('meta[name="theme-color"]');
+          if (themeColor) {
+            themeColor.setAttribute("content", dark ? "#10181b" : "#f7fbfa");
+          }
+        } catch (error) {
+          // Keep the default light theme when storage is unavailable.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

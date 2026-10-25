@@ -1,6 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
-import { apiGet } from "./lib/api";
+import {
+  AudioLines,
+  CalendarCheck2,
+  Languages,
+  Loader2,
+  MessageSquareText,
+  Mic,
+  PhoneOff,
+  ShieldCheck,
+  TriangleAlert,
+  Volume2,
+} from "lucide-react";
+
+import { EmptyState } from "@/components/shared/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { StatusOrb } from "@/components/live/status-orb";
+import { TranscriptMessage } from "@/components/live/transcript-message";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { apiGet } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 function mergeTranscript(items, message) {
   const next = [...items];
@@ -30,11 +61,30 @@ function mergeTranscript(items, message) {
   return next;
 }
 
+const TIPS = [
+  {
+    icon: Languages,
+    title: "Speak naturally",
+    text: "Use Hindi, English, or Hinglish.",
+  },
+  {
+    icon: CalendarCheck2,
+    title: "Real appointments",
+    text: "Availability and booking tools are live.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Safe to interrupt",
+    text: "Barge in whenever you need to clarify.",
+  },
+];
+
 export default function LiveCall() {
   const roomRef = useRef(null);
   const audioElementsRef = useRef(new Map());
   const isStartingRef = useRef(false);
   const startAbortRef = useRef(null);
+  const transcriptEndRef = useRef(null);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -43,6 +93,7 @@ export default function LiveCall() {
   const [transcripts, setTranscripts] = useState([]);
   const [error, setError] = useState("");
   const [runLabel, setRunLabel] = useState("");
+  const [elapsed, setElapsed] = useState(0);
 
   function attachAudio(track) {
     if (track.kind !== Track.Kind.Audio) return;
@@ -79,6 +130,7 @@ export default function LiveCall() {
     isStartingRef.current = true;
     setIsConnecting(true);
     setTranscripts([]);
+    setElapsed(0);
 
     const controller = new AbortController();
     startAbortRef.current = controller;
@@ -151,6 +203,7 @@ export default function LiveCall() {
           detachAllAudio();
           setIsConnected(false);
           setAudioBlocked(false);
+          setElapsed(0);
           setStatus("Disconnected");
         }
       });
@@ -231,6 +284,7 @@ export default function LiveCall() {
 
     setIsConnected(false);
     setAudioBlocked(false);
+    setElapsed(0);
 
     if (room) {
       detachAllAudio();
@@ -249,90 +303,286 @@ export default function LiveCall() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isConnected) return undefined;
+
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [isConnected]);
+
+  useEffect(() => {
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+      .matches
+      ? "auto"
+      : "smooth";
+
+    transcriptEndRef.current?.scrollIntoView({ behavior, block: "end" });
+  }, [transcripts]);
+
+  const phase = error
+    ? "error"
+    : isConnected
+      ? "live"
+      : isConnecting
+        ? "connecting"
+        : "idle";
+
+  const finalCount = transcripts.filter((item) => item.isFinal).length;
+  const canStop = isConnecting || isConnected;
+
   return (
-    <main className="live-call">
-      <section className="panel">
-        <p className="eyebrow">CLINIC VOICE AI</p>
-        <h1>Voice receptionist</h1>
-        <p className="subtitle">
-          Speak naturally in Hindi, English, or Hinglish. The AI receptionist
-          can check availability and book an appointment.
-        </p>
+    <main className="space-y-6 animate-fade-up">
+      <PageHeader
+        icon={AudioLines}
+        eyebrow="Live call"
+        title="Your AI receptionist"
+        description="Start a voice session and watch the conversation unfold in real time. The receptionist can check availability and book appointments while you speak."
+        actions={
+          <Badge
+            variant={
+              isConnected
+                ? "success"
+                : isConnecting
+                  ? "warning"
+                  : error
+                    ? "destructive"
+                    : "outline"
+            }
+            className="px-3 py-1"
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                isConnected
+                  ? "bg-success"
+                  : isConnecting
+                    ? "animate-pulse bg-warning"
+                    : error
+                      ? "bg-destructive"
+                      : "bg-muted-foreground"
+              )}
+            />
+            {isConnected
+              ? "Live now"
+              : isConnecting
+                ? "Connecting"
+                : error
+                  ? "Needs attention"
+                  : "Ready"}
+          </Badge>
+        }
+      />
 
-        <div className="status">
-          <span className={isConnected ? "dot online" : "dot"} />
-          {status}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+        <div className="space-y-5">
+          <Card className="overflow-hidden">
+            <div className="bg-linear-to-br from-primary/10 via-card to-chart-2/10 px-5 pt-5 pb-5 sm:px-7">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold tracking-[0.16em] text-primary uppercase">
+                    Voice session
+                  </p>
+                  <h2 className="mt-1 text-lg font-extrabold tracking-tight">
+                    Clinic receptionist
+                  </h2>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline">Hindi</Badge>
+                  <Badge variant="outline">English</Badge>
+                  <Badge variant="outline">Hinglish</Badge>
+                </div>
+              </div>
+
+              <StatusOrb phase={phase} status={status} elapsed={elapsed} />
+
+              {audioBlocked && (
+                <Alert variant="warning" className="mb-3 text-left">
+                  <Volume2 />
+                  <AlertTitle>Audio playback is blocked</AlertTitle>
+                  <AlertDescription>
+                    <p>Your browser needs a tap before it can play the AI voice.</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={enableAudio}
+                      className="mt-2 border-warning/30 bg-background/60"
+                    >
+                      Enable audio
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {error && (
+                <Alert variant="destructive" className="mb-3 text-left">
+                  <TriangleAlert />
+                  <AlertTitle>Could not start the call</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="mt-2">
+                {canStop ? (
+                  <Button
+                    type="button"
+                    variant={isConnecting ? "outline" : "destructive"}
+                    size="xl"
+                    onClick={() => stopSession()}
+                    className="w-full"
+                  >
+                    {isConnecting ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <PhoneOff />
+                    )}
+                    {isConnecting ? "Cancel connection" : "End call"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="xl"
+                    onClick={startSession}
+                    className="w-full shadow-lg shadow-primary/20"
+                  >
+                    <Mic />
+                    Start microphone
+                  </Button>
+                )}
+              </div>
+
+              <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
+                {isConnected
+                  ? "Connected to the LiveKit room. Speak normally."
+                  : "Your browser will ask for microphone permission."}
+              </p>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-0">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm">Benchmark run</CardTitle>
+                  <CardDescription className="mt-1">
+                    Group this call with a 20-call test run.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">Optional</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-3">
+              <Label htmlFor="run-label" className="sr-only">
+                Test run label
+              </Label>
+              <Input
+                id="run-label"
+                type="text"
+                value={runLabel}
+                onChange={(event) => setRunLabel(event.target.value)}
+                placeholder="e.g. baseline-1"
+                maxLength={48}
+                disabled={isConnecting || isConnected}
+                className="bg-background"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Use the same label for every call in a benchmark so latency is
+                reported together.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-0">
+              <CardTitle className="text-sm">Before you start</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 pt-3">
+              {TIPS.map((tip) => {
+                const Icon = tip.icon;
+                return (
+                  <div key={tip.title} className="flex items-start gap-3">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/8 text-primary">
+                      <Icon className="size-4" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-semibold">{tip.title}</p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {tip.text}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         </div>
 
-        {audioBlocked && (
-          <div className="audio-banner" role="status">
-            <span>Your browser blocked the receptionist audio.</span>
-            <button type="button" onClick={enableAudio}>
-              Enable audio
-            </button>
-          </div>
-        )}
+        <Card className="flex h-[560px] flex-col overflow-hidden xl:h-[calc(100vh-11.5rem)] xl:min-h-[620px]">
+          <CardHeader className="border-b pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquareText className="size-4 text-primary" />
+                  Live transcript
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Final words appear as the conversation progresses.
+                </CardDescription>
+              </div>
 
-        <label className="run-filter">
-          <span>Test run label (optional)</span>
-          <input
-            type="text"
-            value={runLabel}
-            onChange={(event) => setRunLabel(event.target.value)}
-            placeholder="e.g. baseline-1"
-            maxLength={48}
-            disabled={isConnecting || isConnected}
-          />
-          <small>
-            Use the same label for 20 benchmark calls so their latency is
-            reported together.
-          </small>
-        </label>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{transcripts.length} messages</Badge>
+                {isConnected && (
+                  <Badge variant="success">
+                    <span className="size-1.5 animate-pulse rounded-full bg-success" />
+                    Listening
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </CardHeader>
 
-        <div className="actions">
-          <button
-            type="button"
-            onClick={startSession}
-            disabled={isConnecting || isConnected}
-          >
-            {isConnecting ? "Connecting..." : "Start microphone"}
-          </button>
-
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => stopSession()}
-            disabled={!isConnecting && !isConnected}
-          >
-            Stop
-          </button>
-        </div>
-
-        {error && <p className="error">{error}</p>}
-
-        <section className="transcript">
-          <h2>Live transcript</h2>
-
-          {transcripts.length === 0 ? (
-            <p className="placeholder">
-              Your spoken words will appear here...
-            </p>
-          ) : (
-            transcripts.map((item, index) => (
-              <article
-                className={`transcript-item ${item.role}`}
-                key={`${item.role}-${index}`}
+          <CardContent className="min-h-0 flex-1 p-0">
+            <ScrollArea className="h-full">
+              <div
+                className="space-y-4 px-4 py-5 sm:px-5"
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions"
               >
-                <strong className="speaker">
-                  {item.role === "assistant" ? "AI receptionist" : "Caller"}
-                </strong>
-                <p>{item.text}</p>
-                <small>{item.isFinal ? "Final" : "Listening..."}</small>
-              </article>
-            ))
-          )}
-        </section>
-      </section>
+                {transcripts.length === 0 ? (
+                  <EmptyState
+                    icon={AudioLines}
+                    title="No words yet"
+                    description="Start a call and speak naturally. The AI receptionist's replies and your words will appear here."
+                    className="border-0 bg-transparent py-14"
+                  />
+                ) : (
+                  transcripts.map((item, index) => (
+                    <TranscriptMessage
+                      key={`${item.role}-${item.receivedAt || index}-${index}`}
+                      item={item}
+                    />
+                  ))
+                )}
+                <div ref={transcriptEndRef} />
+              </div>
+            </ScrollArea>
+          </CardContent>
+
+          <div className="flex items-center justify-between border-t px-5 py-3 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <Mic className="size-3.5" />
+              Microphone {isConnected ? "active" : "idle"}
+            </span>
+            <span>{finalCount} final</span>
+          </div>
+        </Card>
+      </div>
     </main>
   );
 }
