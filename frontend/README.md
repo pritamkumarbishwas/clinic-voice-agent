@@ -1,16 +1,40 @@
-# React + Vite
+# Clinic Voice AI frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite + Tailwind frontend for the clinic voice agent.
 
-Currently, two official plugins are available:
+## Routes
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `/` - public patient call page
+- `/admin/login` - staff sign in
+- `/admin/live` - admin call page with benchmark run label
+- `/admin/appointments` - patient bookings
+- `/admin/calls` - call log and transcripts
+- `/admin/clinic` - clinic profile and FAQ editor
+- `/admin/latency` - latency dashboard
 
-## React Compiler
+Admin routes use an HttpOnly JWT cookie. The API client sends
+`credentials: "include"` and clears the session on a 401.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Development
 
-## Expanding the ESLint configuration
+```powershell
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The Vite dev server proxies `/api` to `http://localhost:8000`. Set
+`VITE_API_URL` only when you want to call the API directly instead:
+
+```env
+VITE_API_URL=http://localhost:8000
+```
+
+Leave it empty for Vercel, where `vercel.json` rewrites `/api/*` to the Render
+API so cookies stay same-origin.
+
+## Checks
+
+```powershell
+npm run lint
+npm run build
+```

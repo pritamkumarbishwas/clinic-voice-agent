@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from typing import Literal
@@ -141,7 +140,7 @@ async def analyze_with_llm(
     transcript: list,
     booking_outcome: str,
 ) -> TranscriptAnalysis | None:
-    api_key = os.getenv("SARVAM_API_KEY")
+    api_key = settings.sarvam_api_key
     if not api_key:
         logger.info("SARVAM_API_KEY is missing; using rule-based analysis")
         return None

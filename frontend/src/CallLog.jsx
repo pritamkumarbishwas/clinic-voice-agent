@@ -6,6 +6,7 @@ import {
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { CallDetailSheet } from "@/components/calls/call-detail-sheet";
@@ -20,7 +21,8 @@ import { apiGet, apiPost } from "@/lib/api";
 import { formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-export default function CallLog({ onGoLive }) {
+export default function CallLog() {
+  const navigate = useNavigate();
   const [calls, setCalls] = useState([]);
   const [runs, setRuns] = useState([]);
   const [page, setPage] = useState(1);
@@ -211,7 +213,7 @@ export default function CallLog({ onGoLive }) {
   }
 
   return (
-    <main className="space-y-5 animate-fade-up">
+    <div className="space-y-5 animate-fade-up">
       <PageHeader
         icon={History}
         eyebrow="Call log"
@@ -285,7 +287,10 @@ export default function CallLog({ onGoLive }) {
                 Clear filters
               </Button>
             ) : (
-              <Button type="button" onClick={onGoLive}>
+              <Button
+                type="button"
+                onClick={() => navigate("/admin/live")}
+              >
                 Start a call
               </Button>
             )
@@ -339,6 +344,6 @@ export default function CallLog({ onGoLive }) {
         retryingAnalysis={analysisRetrying}
         onRetryAnalysis={retryAnalysis}
       />
-    </main>
+    </div>
   );
 }

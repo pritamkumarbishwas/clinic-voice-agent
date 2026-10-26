@@ -1,25 +1,30 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, LogOut } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 
-import { ConnectionStatus } from "@/components/layout/connection-status";
 import { Brand } from "@/components/layout/brand";
+import { ConnectionStatus } from "@/components/layout/connection-status";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 import { getNavItem } from "@/lib/navigation";
 
-function AppShell({
-  view,
-  onViewChange,
-  healthStatus,
-  onCheckHealth,
-  children,
-}) {
-  const current = getNavItem(view);
+function AppShell({ healthStatus, onCheckHealth, children }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  const current = getNavItem(location.pathname);
   const CurrentIcon = current.icon;
+
+  async function handleLogout() {
+    await logout();
+    navigate("/admin/login", { replace: true });
+  }
 
   return (
     <div className="min-h-screen bg-background surface-glow">
-      <Sidebar view={view} onChange={onViewChange} />
+      <Sidebar />
 
       <div className="lg:pl-72">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/70 bg-background/82 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
@@ -41,6 +46,16 @@ function AppShell({
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             <ConnectionStatus status={healthStatus} onRetry={onCheckHealth} />
             <ThemeToggle />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleLogout}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut />
+            </Button>
           </div>
         </header>
 
@@ -49,7 +64,7 @@ function AppShell({
         </main>
       </div>
 
-      <MobileNav view={view} onChange={onViewChange} />
+      <MobileNav />
     </div>
   );
 }

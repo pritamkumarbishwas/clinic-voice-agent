@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import (
     appointments,
+    clinic,
     close_database,
     doctors,
     initialize_database,
@@ -24,6 +25,22 @@ DOCTORS = (
 )
 
 SLOT_TIMES = ((10, 0), (10, 30), (11, 0), (14, 0), (16, 0))
+
+DEFAULT_CLINIC = {
+    "name": "Sunrise Family Clinic",
+    "address": "12 MG Road, Bengaluru 560001",
+    "phone": "+91 80 4123 4567",
+    "hours": {
+        "open": "10:00",
+        "close": "17:00",
+        "days": "Monday to Saturday",
+    },
+    "consultation_fee": "500 rupees",
+    "emergency_note": (
+        "For medical emergencies, call 108 or visit the nearest "
+        "emergency department."
+    ),
+}
 
 
 async def seed() -> None:
@@ -76,7 +93,18 @@ async def seed() -> None:
 
         await _seed_booked_slot(now)
 
-        print("Doctors and slots seeded successfully.")
+        await clinic.update_one(
+            {"_id": "main"},
+            {
+                "$setOnInsert": {
+                    **DEFAULT_CLINIC,
+                    "updated_at": now,
+                }
+            },
+            upsert=True,
+        )
+
+        print("Doctors, slots, and clinic profile seeded successfully.")
 
     finally:
         await close_database()

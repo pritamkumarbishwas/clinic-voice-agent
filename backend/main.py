@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 import math
 import os
 from contextlib import asynccontextmanager
@@ -8,10 +9,25 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from livekit import api
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
+from app.auth import (
+    CurrentUser,
+    LoginRequest,
+    authenticate_user,
+    clear_auth_cookie,
+    create_access_token,
+    get_current_user,
+    get_optional_user,
+    public_user,
+    require_admin,
+    set_auth_cookie,
+)
 from app.config import sanitize_run_id, settings
 from app.database import (
     appointments,
@@ -22,12 +38,55 @@ from app.database import (
     close_database,
     initialize_database,
 )
+from app.services.appointment_service import (
+    list_appointments as db_list_appointments,
+    list_doctors as db_list_doctors,
+)
+from app.services.clinic_service import (
+    ClinicProfile,
+    get_clinic_profile,
+    update_clinic_profile,
+)
 from app.services.latency_report import LATENCY_FIELDS, build_report
 from app.workers.analysis_worker import run_worker
 
 load_dotenv()
 
-DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+logging.basicConfig(
+    level=getattr(logging, settings.log_level, logging.INFO)
+)
+logger = logging.getLogger("clinic-api")
+
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.sentry_environment,
+            traces_sample_rate=0.1,
+        )
+    except Exception:
+        logger.exception("Could not initialise Sentry")
+
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:4173,http://127.0.0.1:4173"
+)
+
+
+def _rate_limit_key(request: Request) -> str:
+    if settings.trust_proxy_headers:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return get_remote_address(request)
+
+
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    enabled=settings.rate_limit_enabled,
+)
 
 
 def _cors_origins() -> list[str]:
@@ -37,6 +96,7 @@ def _cors_origins() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.validate()
     await initialize_database()
 
     worker_task = None
@@ -57,37 +117,91 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Clinic Voice Agent API", lifespan=lifespan)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 
-@app.get("/api/health")
-async def health_check():
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid4().hex
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+async def _database_ready() -> bool:
     try:
         await client.admin.command("ping")
-        database = "ok"
+        return True
     except Exception:
+        return False
+
+
+@app.get("/api/health")
+async def health_check():
+    if not await _database_ready():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     return {
         "status": "healthy",
         "service": "clinic-voice-agent",
-        "database": database,
+        "database": "ok",
     }
 
 
+@app.get("/api/ready")
+async def readiness_check():
+    return await health_check()
+
+
+@app.post("/api/auth/login")
+@limiter.limit("5/minute")
+async def login(
+    request: Request,
+    response: Response,
+    payload: LoginRequest,
+):
+    user = await authenticate_user(payload.email, payload.password)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password",
+        )
+
+    token = create_access_token(user)
+    set_auth_cookie(response, token)
+    return {"user": public_user(user)}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    clear_auth_cookie(response)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+async def current_user(user: CurrentUser = Depends(get_current_user)):
+    return {"user": public_user(user)}
+
+
 @app.get("/api/generate-token")
+@limiter.limit("20/minute")
 async def generate_token(
+    request: Request,
     run_id: str | None = Query(None, max_length=48),
 ):
-    livekit_url = os.getenv("LIVEKIT_URL")
-    api_key = os.getenv("LIVEKIT_API_KEY")
-    api_secret = os.getenv("LIVEKIT_API_SECRET")
+    livekit_url = settings.livekit_url
+    api_key = settings.livekit_api_key
+    api_secret = settings.livekit_api_secret
 
     if not all([livekit_url, api_key, api_secret]):
         raise HTTPException(
@@ -104,6 +218,16 @@ async def generate_token(
                 detail=(
                     "run_id must be 1-48 characters using letters, "
                     "numbers, spaces, hyphens or underscores"
+                ),
+            )
+
+        user = await get_optional_user(request)
+        if user is None or not user.is_admin:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Admin login is required to tag a benchmark run. "
+                    "Start a normal call without a run id."
                 ),
             )
 
@@ -173,6 +297,7 @@ async def list_calls(
     run_id: str | None = Query(None, max_length=48),
     outcome: str | None = Query(None, max_length=32),
     sentiment: str | None = Query(None, max_length=32),
+    _: CurrentUser = Depends(require_admin),
 ):
     skip = (page - 1) * page_size
     query: dict = {}
@@ -211,7 +336,10 @@ async def list_calls(
 
 
 @app.get("/api/calls/{call_id}")
-async def get_call(call_id: str):
+async def get_call(
+    call_id: str,
+    _: CurrentUser = Depends(require_admin),
+):
     call = await calls.find_one({"call_id": call_id}, {"_id": 0})
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
@@ -234,7 +362,10 @@ async def get_call(call_id: str):
 
 
 @app.post("/api/calls/{call_id}/analyze")
-async def requeue_analysis(call_id: str):
+async def requeue_analysis(
+    call_id: str,
+    _: CurrentUser = Depends(require_admin),
+):
     result = await calls.update_one(
         {"call_id": call_id},
         {
@@ -256,8 +387,50 @@ async def requeue_analysis(call_id: str):
     }
 
 
+@app.get("/api/appointments")
+async def list_appointments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, max_length=32),
+    doctor: str | None = Query(None, max_length=120),
+    date: str | None = Query(None, max_length=10),
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await db_list_appointments(
+            page=page,
+            page_size=page_size,
+            status=status,
+            doctor=doctor,
+            date_value=date,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="date must use YYYY-MM-DD format",
+        )
+
+
+@app.get("/api/doctors")
+async def list_doctors(_: CurrentUser = Depends(require_admin)):
+    return {"items": await db_list_doctors()}
+
+
+@app.get("/api/clinic")
+async def read_clinic(_: CurrentUser = Depends(require_admin)):
+    return await get_clinic_profile()
+
+
+@app.put("/api/clinic")
+async def write_clinic(
+    profile: ClinicProfile,
+    _: CurrentUser = Depends(require_admin),
+):
+    return await update_clinic_profile(profile)
+
+
 @app.get("/api/analytics/runs")
-async def list_runs():
+async def list_runs(_: CurrentUser = Depends(require_admin)):
     pipeline = [
         {"$match": {"run_id": {"$type": "string", "$ne": ""}}},
         {
@@ -290,6 +463,7 @@ async def list_runs():
 @app.get("/api/analytics/latency")
 async def latency_report(
     run_id: str | None = Query(None, max_length=48),
+    _: CurrentUser = Depends(require_admin),
 ):
     turn_query: dict = {}
     call_query: dict = {}

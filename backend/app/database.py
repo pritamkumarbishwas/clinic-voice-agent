@@ -1,13 +1,10 @@
-import os
-
-from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING
 
-load_dotenv()
+from app.config import settings
 
-MONGODB_URI = os.getenv("MONGODB_URI")
-DATABASE_NAME = os.getenv("MONGODB_DATABASE", "clinic_voice_ai")
+MONGODB_URI = settings.mongodb_uri
+DATABASE_NAME = settings.mongodb_database
 
 if not MONGODB_URI:
     raise RuntimeError("MONGODB_URI is missing from .env")
@@ -21,6 +18,8 @@ client = AsyncIOMotorClient(
 
 db = client[DATABASE_NAME]
 
+users = db["users"]
+clinic = db["clinic"]
 doctors = db["doctors"]
 slots = db["slots"]
 appointments = db["appointments"]
@@ -33,6 +32,9 @@ async def initialize_database() -> None:
     """Verify connectivity once, then make the collection indexes idempotent."""
     await client.admin.command("ping")
 
+    await users.create_index([("email", ASCENDING)], unique=True)
+    await users.create_index([("role", ASCENDING), ("active", ASCENDING)])
+
     await doctors.create_index([("name", ASCENDING)])
     await doctors.create_index([("active", ASCENDING), ("name", ASCENDING)])
 
@@ -42,6 +44,9 @@ async def initialize_database() -> None:
     await appointments.create_index([("slot_id", ASCENDING)], unique=True)
     await appointments.create_index([("call_id", ASCENDING)])
     await appointments.create_index([("created_at", DESCENDING)])
+    await appointments.create_index([("start_at", ASCENDING)])
+    await appointments.create_index([("status", ASCENDING), ("start_at", ASCENDING)])
+    await appointments.create_index([("doctor_name", ASCENDING)])
 
     await calls.create_index([("call_id", ASCENDING)], unique=True)
     await calls.create_index([("started_at", DESCENDING)])

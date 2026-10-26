@@ -1,11 +1,15 @@
-# Clinic Voice Agent (Student Edition)
+# Clinic Voice Agent
 
 Real-time Hindi/Hinglish phone receptionist for a small clinic. A caller talks
-to a LiveKit agent, the agent checks doctor availability, books or reschedules
-appointments, and every call is stored for analysis and latency benchmarking.
+to a LiveKit agent, the agent answers clinic FAQs, checks doctor availability,
+books or reschedules appointments, and every call is stored for analysis and
+latency benchmarking.
 
-This is a student edition: single clinic, no multi-tenant auth, manual
-benchmark calls.
+The project has two surfaces:
+
+- **Public patient call page** at `/` - no login, starts a voice session.
+- **Protected admin dashboard** under `/admin/*` - JWT cookie login, call log,
+  appointments, clinic profile/FAQ editor, and latency dashboards.
 
 ## Architecture
 
@@ -22,8 +26,8 @@ Browser (React + LiveKit)          LiveKit Cloud               Sarvam
                                    FastAPI
                                       |
                                    MongoDB Atlas
-                             calls / call_turns / slots /
-                             appointments / benchmark_runs
+                             users / clinic / calls / call_turns /
+                             slots / appointments / benchmark_runs
 ```
 
 Flow after a call ends:
@@ -54,8 +58,10 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 # create backend/.env from .env.example and fill in
-# LIVEKIT_*, SARVAM_API_KEY, MONGODB_URI
+# LIVEKIT_*, SARVAM_API_KEY, MONGODB_URI, and JWT_SECRET
 .\.venv\Scripts\python.exe scripts\seed_data.py
+.\.venv\Scripts\python.exe scripts\seed_clinic.py
+.\.venv\Scripts\python.exe scripts\create_admin.py --email admin@example.com
 ```
 
 Frontend:
@@ -66,9 +72,8 @@ npm install
 # create frontend/.env from .env.example
 ```
 
-`frontend/.env` only needs `VITE_API_URL` (default `http://localhost:8000`).
-The browser gets the LiveKit URL and token from the backend token endpoint, so
-LiveKit secrets stay on the server.
+`frontend/.env` can leave `VITE_API_URL` empty to use the Vite `/api` proxy.
+If set, it must point at the API, e.g. `http://localhost:8000`.
 
 ## Run
 
@@ -92,9 +97,13 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`, start a call, and speak Hindi, Hinglish, or
-English. The agent supports barge-in: start speaking while it talks and it
-stops.
+Open `http://localhost:5173` for the public patient page.
+Open `http://localhost:5173/admin/login` and use the admin account created
+above.
+
+The agent supports barge-in: start speaking while it talks and it stops. Clinic
+details are loaded from the `clinic` collection on each call, so changes in
+`/admin/clinic` apply to the next conversation.
 
 ## Environment variables
 
@@ -104,7 +113,9 @@ See `backend/.env.example` for the full list. The important groups are:
   `LIVEKIT_AGENT_NAME`
 - Sarvam: `SARVAM_API_KEY`
 - MongoDB: `MONGODB_URI`, `MONGODB_DATABASE`
-- Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`)
+- Auth: `JWT_SECRET` (32+ chars), `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`,
+  `AUTH_COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
+- Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`), `CORS_ORIGINS`
 - STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`
 - LLM: `LLM_MODEL` (default `sarvam-105b`)
 - TTS: `TTS_LANGUAGE`, `TTS_MODEL`, `TTS_SPEAKER`, `TTS_PACE`,
@@ -114,12 +125,19 @@ See `backend/.env.example` for the full list. The important groups are:
 - Analysis: `ANALYSIS_MODEL`, `ANALYSIS_MAX_ATTEMPTS`,
   `ANALYSIS_POLL_SECONDS`, `ANALYSIS_TIMEOUT_SECONDS`,
   `ANALYSIS_WORKER_ENABLED`, `ANALYSIS_TRANSCRIPT_CHARS`
+- Operations: `LOG_LEVEL`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`,
+  `RATE_LIMIT_ENABLED`, `TRUST_PROXY_HEADERS`
+
+`Settings.validate()` checks required values and fails fast with a readable
+list of invalid names at API and agent startup.
 
 Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 `.env.example`.
 
 ## Data model
 
+- `users`: admin accounts with Argon2 password hashes and roles
+- `clinic`: single clinic profile/FAQ used by the agent prompt
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
   fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`
 - `call_turns`: one document per transcript turn with stage latencies
@@ -130,14 +148,37 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 
 ## API
 
+Public:
+
 - `GET /api/health`
-- `GET /api/generate-token?run_id=baseline-1` - LiveKit token and dispatch
-  metadata. The run id is copied into every call and turn.
+- `GET /api/ready`
+- `GET /api/generate-token` - LiveKit token. With `?run_id=baseline-1`, an
+  admin session is required and the run id is copied into every call/turn.
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+
+Admin (JWT cookie):
+
+- `GET /api/auth/me`
 - `GET /api/calls?page=1&page_size=20&run_id=baseline-1`
 - `GET /api/calls/{call_id}`
 - `POST /api/calls/{call_id}/analyze` - requeue a failed or pending analysis
+- `GET /api/appointments?status=confirmed&doctor=Dr.%20Sharma&date=2026-11-02`
+- `GET /api/doctors`
+- `GET /api/clinic`
+- `PUT /api/clinic`
 - `GET /api/analytics/runs`
 - `GET /api/analytics/latency?run_id=baseline-1`
+
+## Frontend routes
+
+- `/` - public patient call page
+- `/admin/login` - admin sign in
+- `/admin/live` - admin call page with benchmark run label
+- `/admin/appointments` - patient bookings
+- `/admin/calls` - call log and transcripts
+- `/admin/clinic` - clinic profile and FAQ editor
+- `/admin/latency` - benchmark latency dashboard
 
 ## Benchmark (20 calls)
 
@@ -148,8 +189,8 @@ cd backend
 .\.venv\Scripts\python.exe scripts\benchmark.py start --label baseline
 ```
 
-Copy the printed `run_id` into the **Test run label** field on the Live call
-page, then complete the 20 calls in `benchmark-script.md`.
+Copy the printed `run_id` into the **Test run label** field on the admin Live
+call page, then complete the 20 calls in `benchmark-script.md`.
 
 Check progress:
 
@@ -173,6 +214,18 @@ The report contains p50/p95/p99, min, max, sample counts per stage, booking
 success rate, barge-in count, and the slowest calls. A fresh database has no
 benchmark numbers; they must be collected with real calls.
 
+## Deployment
+
+See [`docs/deployment.md`](docs/deployment.md) for Vercel + Render + MongoDB
+Atlas + LiveKit Cloud. The repository includes:
+
+- `backend/Dockerfile` and `backend/Dockerfile.agent`
+- `frontend/Dockerfile` and `frontend/nginx.conf`
+- `docker-compose.yml` for a local production-like stack
+- `render.yaml` for Render Blueprint deployment
+- `frontend/vercel.json` for the same-origin `/api` rewrite
+- `.github/workflows/ci.yml`
+
 ## Tests and checks
 
 ```powershell
@@ -188,8 +241,11 @@ npm run build
 
 ## Known limitations
 
-- No authentication or multi-clinic tenancy.
+- Single clinic, not multi-tenant.
+- No telephony or external CRM integration; MongoDB calls are the CRM.
 - The benchmark script is manual; results depend on network and caller speech.
 - LLM summaries can fail; the rule-based fallback keeps the pipeline usable.
 - LiveKit credentials and a real phone/audio environment are required for
   end-to-end voice validation.
+- Public callers can start a session without login, so production deployments
+  should keep token rate limits enabled and monitor usage.

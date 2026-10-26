@@ -1,50 +1,82 @@
 export const API_URL = (
-  import.meta.env.VITE_API_URL || "http://localhost:8000"
+  import.meta.env.VITE_API_URL || ""
 ).replace(/\/+$/, "");
 
+export const AUTH_UNAUTHORIZED_EVENT = "clinic:unauthorized";
+
+function notifyUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+  }
+}
+
 async function parseResponse(response) {
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
+  if (response.status === 204) return null;
 
+  const text = await response.text();
+  let body = null;
+
+  if (text) {
     try {
-      const body = await response.json();
-      if (body?.detail) {
-        detail =
-          typeof body.detail === "string"
-            ? body.detail
-            : JSON.stringify(body.detail);
-      }
+      body = JSON.parse(text);
     } catch {
-      // Keep the HTTP status text when the body is not JSON.
+      body = text;
     }
-
-    throw new Error(detail);
   }
 
-  return response.json();
+  if (!response.ok) {
+    let detail =
+      typeof body === "string" && body
+        ? body
+        : `${response.status} ${response.statusText}`;
+
+    if (body?.detail) {
+      detail =
+        typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body.detail);
+    }
+
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+
+  return body;
 }
 
-export async function apiGet(path, { signal } = {}) {
+async function request(path, options = {}) {
+  const { body, ...rest } = options;
   const response = await fetch(`${API_URL}${path}`, {
-    signal,
+    credentials: "include",
     cache: "no-store",
-    headers: { Accept: "application/json" },
-  });
-
-  return parseResponse(response);
-}
-
-export async function apiPost(path, body, { signal } = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    signal,
-    cache: "no-store",
+    ...rest,
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...rest.headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+  if (
+    response.status === 401 &&
+    !path.startsWith("/api/auth/login")
+  ) {
+    notifyUnauthorized();
+  }
+
   return parseResponse(response);
+}
+
+export async function apiGet(path, { signal, headers } = {}) {
+  return request(path, { signal, headers });
+}
+
+export async function apiPost(path, body, { signal, headers } = {}) {
+  return request(path, { method: "POST", body, signal, headers });
+}
+
+export async function apiPut(path, body, { signal, headers } = {}) {
+  return request(path, { method: "PUT", body, signal, headers });
 }

@@ -79,7 +79,7 @@ const TIPS = [
   },
 ];
 
-export default function LiveCall() {
+export default function LiveCall({ admin = false }) {
   const roomRef = useRef(null);
   const audioElementsRef = useRef(new Map());
   const isStartingRef = useRef(false);
@@ -355,7 +355,7 @@ export default function LiveCall() {
   const canStop = isConnecting || isConnected;
 
   return (
-    <main className="space-y-6 animate-fade-up">
+    <div className="space-y-6 animate-fade-up">
       <PageHeader
         icon={AudioLines}
         eyebrow="Live call"
@@ -489,38 +489,40 @@ export default function LiveCall() {
             </div>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-0">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-sm">Benchmark run</CardTitle>
-                  <CardDescription className="mt-1">
-                    Group this call with a 20-call test run.
-                  </CardDescription>
+          {admin && (
+            <Card>
+              <CardHeader className="pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-sm">Benchmark run</CardTitle>
+                    <CardDescription className="mt-1">
+                      Group this call with a 20-call test run.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline">Optional</Badge>
                 </div>
-                <Badge variant="outline">Optional</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-3">
-              <Label htmlFor="run-label" className="sr-only">
-                Test run label
-              </Label>
-              <Input
-                id="run-label"
-                type="text"
-                value={runLabel}
-                onChange={(event) => setRunLabel(event.target.value)}
-                placeholder="e.g. baseline-1"
-                maxLength={48}
-                disabled={isConnecting || isConnected}
-                className="bg-background"
-              />
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Use the same label for every call in a benchmark so latency is
-                reported together.
-              </p>
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent className="pt-3">
+                <Label htmlFor="run-label" className="sr-only">
+                  Test run label
+                </Label>
+                <Input
+                  id="run-label"
+                  type="text"
+                  value={runLabel}
+                  onChange={(event) => setRunLabel(event.target.value)}
+                  placeholder="e.g. baseline-1"
+                  maxLength={48}
+                  disabled={isConnecting || isConnected}
+                  className="bg-background"
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Use the same label for every call in a benchmark so latency is
+                  reported together.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-0">
@@ -608,6 +610,6 @@ export default function LiveCall() {
           </div>
         </Card>
       </div>
-    </main>
+    </div>
   );
 }

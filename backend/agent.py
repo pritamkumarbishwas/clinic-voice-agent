@@ -25,10 +25,17 @@ from app.services.booking_service import (
     book_appointment as db_book_appointment,
     check_availability as db_check_availability,
 )
+from app.services.clinic_service import (
+    DEFAULT_CLINIC,
+    format_clinic_for_prompt,
+    get_clinic_profile,
+)
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=getattr(logging, settings.log_level, logging.INFO)
+)
 logger = logging.getLogger("clinic-booking-agent")
 
 AGENT_NAME = settings.livekit_agent_name
@@ -37,7 +44,8 @@ AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
 
 def prewarm(proc) -> None:
-    """Load the VAD once per worker process instead of once per call."""
+    """Validate configuration and load the VAD once per worker process."""
+    settings.validate()
     proc.userdata["vad"] = silero.VAD.load()
 
 
@@ -64,7 +72,14 @@ You are a polite AI clinic receptionist.
 You must identify yourself as an AI receptionist when greeting the caller.
 
 Today's date is {today} in the clinic timezone ({timezone}).
-The clinic is open from 10:00 to 17:00 local time.
+
+CLINIC INFORMATION
+{clinic_details}
+
+FAQ RULES
+- Answer questions about timings, location, phone number, and consultation fees using only the clinic information above.
+- If a detail is marked "Not configured" or is missing, say clinic staff will confirm it.
+- Never invent an address, phone number, fee, or opening time.
 
 LANGUAGE
 - Speak natural Indian Hinglish by default.
@@ -171,11 +186,17 @@ def _config_snapshot() -> dict:
 
 
 class ClinicReceptionist(Agent):
-    def __init__(self, call_id: str, today: str):
+    def __init__(
+        self,
+        call_id: str,
+        today: str,
+        clinic_details: str,
+    ):
         super().__init__(
             instructions=SYSTEM_PROMPT.format(
                 today=today,
                 timezone=CLINIC_TZ.key,
+                clinic_details=clinic_details,
             )
         )
         self.call_id = call_id
@@ -275,6 +296,13 @@ async def clinic_receptionist(ctx: agents.JobContext):
     call_id = str(uuid4())
     run_id = _run_id_from_job(ctx)
     today = datetime.now(CLINIC_TZ).date().isoformat()
+
+    try:
+        clinic_profile = await get_clinic_profile()
+    except Exception:
+        logger.exception("Could not load clinic profile")
+        clinic_profile = DEFAULT_CLINIC.model_dump()
+    clinic_details = format_clinic_for_prompt(clinic_profile)
 
     try:
         await calls.insert_one(
@@ -566,7 +594,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     try:
         await session.start(
             room=ctx.room,
-            agent=ClinicReceptionist(call_id, today),
+            agent=ClinicReceptionist(call_id, today, clinic_details),
         )
         logger.info("Clinic booking agent started: %s", call_id)
 

@@ -179,7 +179,7 @@ export default function LatencyDashboard() {
   const activeRun = runs.find((run) => run.run_id === runId);
 
   return (
-    <main className="space-y-5 animate-fade-up">
+    <div className="space-y-5 animate-fade-up">
       <PageHeader
         icon={Gauge}
         eyebrow="Performance"
@@ -572,6 +572,6 @@ export default function LatencyDashboard() {
           </Card>
         </>
       )}
-    </main>
+    </div>
   );
 }

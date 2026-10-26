@@ -1,56 +1,64 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, useEffect } from "react";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 
-import { AppShell } from "@/components/layout/app-shell";
+import { AuthProvider } from "@/components/auth/auth-provider";
+import { ProtectedRoute } from "@/components/auth/protected-route";
+import { AdminLayout } from "@/components/layout/admin-layout";
+import { PublicLayout } from "@/components/layout/public-layout";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useApiHealth } from "@/hooks/use-api-health";
+import Login from "./Login";
 
+const Appointments = lazy(() => import("./Appointments"));
 const CallLog = lazy(() => import("./CallLog"));
+const ClinicSettings = lazy(() => import("./ClinicSettings"));
 const LatencyDashboard = lazy(() => import("./LatencyDashboard"));
 const LiveCall = lazy(() => import("./LiveCall"));
 
-function ViewFallback() {
-  return (
-    <div className="space-y-5" aria-busy="true" aria-label="Loading view">
-      <div className="space-y-2">
-        <Skeleton className="h-2.5 w-24" />
-        <Skeleton className="h-8 w-64 max-w-full" />
-        <Skeleton className="h-3.5 w-full max-w-xl" />
-      </div>
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Skeleton className="h-80 rounded-2xl" />
-        <Skeleton className="h-80 rounded-2xl" />
-      </div>
-    </div>
-  );
-}
-
-export default function App() {
-  const [view, setView] = useState("live");
-  const { status, check } = useApiHealth();
+function ScrollToTop() {
+  const { pathname } = useLocation();
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [view]);
+  }, [pathname]);
 
+  return null;
+}
+
+export default function App() {
   return (
     <ThemeProvider>
       <TooltipProvider>
-        <AppShell
-          view={view}
-          onViewChange={setView}
-          healthStatus={status}
-          onCheckHealth={check}
-        >
-          <Suspense fallback={<ViewFallback />}>
-            {view === "live" && <LiveCall />}
-            {view === "calls" && <CallLog onGoLive={() => setView("live")} />}
-            {view === "latency" && <LatencyDashboard />}
-          </Suspense>
-        </AppShell>
-        <Toaster />
+        <AuthProvider>
+          <ScrollToTop />
+          <Routes>
+            <Route element={<PublicLayout />}>
+              <Route index element={<LiveCall />} />
+            </Route>
+
+            <Route path="/admin/login" element={<Login />} />
+
+            <Route element={<ProtectedRoute />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="live" replace />} />
+                <Route path="live" element={<LiveCall admin />} />
+                <Route path="appointments" element={<Appointments />} />
+                <Route path="calls" element={<CallLog />} />
+                <Route path="clinic" element={<ClinicSettings />} />
+                <Route path="latency" element={<LatencyDashboard />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <Toaster />
+        </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
   );
