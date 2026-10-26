@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   AudioLines,
   Loader2,
@@ -22,11 +23,23 @@ const PHASES = {
     core: "border-warning/20 bg-warning/10 text-warning",
     ring: "border-warning/15",
   },
+  waiting: {
+    title: "Receptionist joining",
+    icon: Loader2,
+    core: "border-warning/20 bg-warning/10 text-warning",
+    ring: "border-warning/15",
+  },
   live: {
     title: "You're live",
     icon: AudioLines,
     core: "border-primary/25 bg-primary text-primary-foreground shadow-xl shadow-primary/25",
     ring: "border-primary/20",
+  },
+  reconnecting: {
+    title: "Reconnecting",
+    icon: Loader2,
+    core: "border-warning/20 bg-warning/10 text-warning",
+    ring: "border-warning/15",
   },
   ended: {
     title: "Thanks for calling",
@@ -42,9 +55,28 @@ const PHASES = {
   },
 };
 
-function StatusOrb({ phase, status, elapsed }) {
+function StatusOrb({ phase, status, startedAt }) {
+  const [now, setNow] = useState(0);
   const config = PHASES[phase] || PHASES.idle;
   const Icon = config.icon;
+  const showTimer = phase === "live" || phase === "reconnecting";
+  const elapsed =
+    showTimer && startedAt
+      ? Math.max(0, Math.floor((now - startedAt) / 1000))
+      : 0;
+
+  useEffect(() => {
+    if (!showTimer || !startedAt) return undefined;
+
+    const tick = () => setNow(Date.now());
+    const timeout = window.setTimeout(tick, 0);
+    const interval = window.setInterval(tick, 1000);
+
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [showTimer, startedAt]);
 
   return (
     <div className="flex flex-col items-center py-4 text-center">
@@ -75,7 +107,8 @@ function StatusOrb({ phase, status, elapsed }) {
             <Icon
               className={cn(
                 "size-8",
-                phase === "connecting" && "animate-spin"
+                ["connecting", "waiting", "reconnecting"].includes(phase) &&
+                  "animate-spin"
               )}
               strokeWidth={phase === "live" ? 1.8 : 2}
             />
@@ -90,17 +123,19 @@ function StatusOrb({ phase, status, elapsed }) {
         {status}
       </p>
 
-      {phase === "live" && (
+      {showTimer && (
         <div className="mt-3 flex items-center gap-3">
-          <div className="flex h-5 items-center gap-0.5 text-primary">
-            {[0, 1, 2, 3, 4].map((bar) => (
-              <span
-                key={bar}
-                className="h-4 w-0.5 origin-center rounded-full bg-current animate-wave"
-                style={{ animationDelay: `${bar * 110}ms` }}
-              />
-            ))}
-          </div>
+          {phase === "live" && (
+            <div className="flex h-5 items-center gap-0.5 text-primary">
+              {[0, 1, 2, 3, 4].map((bar) => (
+                <span
+                  key={bar}
+                  className="h-4 w-0.5 origin-center rounded-full bg-current animate-wave"
+                  style={{ animationDelay: `${bar * 110}ms` }}
+                />
+              ))}
+            </div>
+          )}
           <span className="font-mono text-sm font-semibold tabular-nums">
             {formatDuration(elapsed)}
           </span>

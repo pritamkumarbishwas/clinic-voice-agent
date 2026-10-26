@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Room, RoomEvent, Track } from "livekit-client";
+import {
+  DisconnectReason,
+  MediaDeviceFailure,
+  ParticipantKind,
+  Room,
+  RoomEvent,
+  Track,
+} from "livekit-client";
 import {
   AudioLines,
   CalendarCheck2,
@@ -7,6 +14,7 @@ import {
   Loader2,
   MessageSquareText,
   Mic,
+  MicOff,
   PhoneOff,
   ShieldCheck,
   TriangleAlert,
@@ -31,34 +39,131 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiGet } from "@/lib/api";
+import { mergeTranscript } from "@/lib/transcripts";
+import { describeVoiceError, voiceError } from "@/lib/voice-errors";
 import { cn } from "@/lib/utils";
 
-function mergeTranscript(items, message) {
-  const next = [...items];
-  const last = next[next.length - 1];
+const AUDIO_CAPTURE_OPTIONS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
 
-  if (!message.isFinal && last && !last.isFinal && last.role === message.role) {
-    next[next.length - 1] = message;
-    return next;
+const TOKEN_TIMEOUT_MS = 20_000;
+const CONNECTION_TIMEOUT_MS = 20_000;
+const AGENT_JOIN_TIMEOUT_MS = 30_000;
+const RECONNECT_TIMEOUT_MS = 30_000;
+
+const ENDED_DISCONNECT_REASONS = new Set([
+  DisconnectReason.CLIENT_INITIATED,
+  DisconnectReason.PARTICIPANT_REMOVED,
+  DisconnectReason.ROOM_DELETED,
+  DisconnectReason.ROOM_CLOSED,
+]);
+
+function clearTimer(ref) {
+  if (ref.current !== null) {
+    window.clearTimeout(ref.current);
+    ref.current = null;
   }
+}
 
-  if (message.isFinal && last && !last.isFinal && last.role === message.role) {
-    next[next.length - 1] = message;
-    return next;
+function disposeAudio(entry) {
+  try {
+    entry.track.detach(entry.element);
+  } catch (detachError) {
+    console.warn("Could not detach an audio track", detachError);
   }
+  entry.element.remove();
+}
 
-  if (
-    message.isFinal &&
-    last &&
-    last.isFinal &&
-    last.role === message.role &&
-    last.text === message.text
-  ) {
-    return items;
+function disposeAllAudio(elements) {
+  for (const entry of elements.values()) {
+    disposeAudio(entry);
   }
+  elements.clear();
+}
 
-  next.push(message);
-  return next;
+const CONNECTION_STATES = {
+  connected: {
+    label: "Connected",
+    variant: "success",
+    dot: "bg-success",
+  },
+  connecting: {
+    label: "Connecting",
+    variant: "warning",
+    dot: "animate-pulse bg-warning",
+  },
+  waiting: {
+    label: "Waiting for agent",
+    variant: "warning",
+    dot: "animate-pulse bg-warning",
+  },
+  reconnecting: {
+    label: "Reconnecting",
+    variant: "warning",
+    dot: "animate-pulse bg-warning",
+  },
+  error: {
+    label: "Disconnected",
+    variant: "destructive",
+    dot: "bg-destructive",
+  },
+  disconnected: {
+    label: "Disconnected",
+    variant: "outline",
+    dot: "bg-muted-foreground",
+  },
+};
+
+const MICROPHONE_STATES = {
+  off: {
+    label: "Microphone off",
+    variant: "outline",
+    icon: MicOff,
+    spinning: false,
+  },
+  requesting: {
+    label: "Requesting permission",
+    variant: "warning",
+    icon: Loader2,
+    spinning: true,
+  },
+  active: {
+    label: "Listening",
+    variant: "success",
+    icon: Mic,
+    spinning: false,
+  },
+  muted: {
+    label: "Microphone muted",
+    variant: "warning",
+    icon: MicOff,
+    spinning: false,
+  },
+};
+
+function findAgent(room) {
+  const remotes = [...room.remoteParticipants.values()];
+  const agent = remotes.find(
+    (participant) => participant.kind === ParticipantKind.AGENT
+  );
+
+  if (agent) return agent;
+  return remotes.length === 1 ? remotes[0] : null;
+}
+
+function hasAgent(room) {
+  return Boolean(findAgent(room));
+}
+
+function isAgentParticipant(participant, room) {
+  if (participant.kind === ParticipantKind.AGENT) return true;
+
+  return ![...room.remoteParticipants.values()].some(
+    (remote) => remote.identity !== participant.identity
+  );
 }
 
 const TIPS = [
@@ -81,20 +186,27 @@ const TIPS = [
 
 export default function LiveCall({ admin = false }) {
   const roomRef = useRef(null);
+  const roomCleanupRef = useRef(null);
   const audioElementsRef = useRef(new Map());
-  const isStartingRef = useRef(false);
-  const startAbortRef = useRef(null);
+  const startInFlightRef = useRef(false);
+  const tokenAbortRef = useRef(null);
+  const tokenTimeoutRef = useRef(null);
+  const agentTimeoutRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const sessionIdRef = useRef(0);
+  const intentionalStopRef = useRef(false);
+  const reconnectingRef = useRef(false);
+  const mountedRef = useRef(true);
   const transcriptViewportRef = useRef(null);
   const transcriptPinnedRef = useRef(true);
 
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const [phase, setPhase] = useState("idle");
+  const [micState, setMicState] = useState("off");
   const [audioBlocked, setAudioBlocked] = useState(false);
-  const [status, setStatus] = useState("Disconnected");
   const [transcripts, setTranscripts] = useState([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [runLabel, setRunLabel] = useState("");
-  const [elapsed, setElapsed] = useState(0);
+  const [startedAt, setStartedAt] = useState(null);
 
   function attachAudio(track) {
     if (track.kind !== Track.Kind.Audio) return;
@@ -104,121 +216,370 @@ export default function LiveCall({ admin = false }) {
 
     const element = track.attach();
     element.autoplay = true;
+    element.playsInline = true;
     element.style.display = "none";
     document.body.appendChild(element);
-    audioElementsRef.current.set(track.sid, element);
+    audioElementsRef.current.set(track.sid, { track, element });
   }
 
   function detachAudio(track) {
-    const element = audioElementsRef.current.get(track.sid);
-    if (!element) return;
+    const entry = audioElementsRef.current.get(track.sid);
+    if (!entry) return;
 
-    track.detach(element);
-    element.remove();
+    disposeAudio(entry);
     audioElementsRef.current.delete(track.sid);
   }
 
-  function detachAllAudio() {
-    for (const element of audioElementsRef.current.values()) {
-      element.remove();
+  function clearTokenTimeout() {
+    clearTimer(tokenTimeoutRef);
+  }
+
+  function clearAgentTimeout() {
+    clearTimer(agentTimeoutRef);
+  }
+
+  function clearReconnectTimeout() {
+    clearTimer(reconnectTimeoutRef);
+  }
+
+  function clearTimers() {
+    clearTimer(tokenTimeoutRef);
+    clearTimer(agentTimeoutRef);
+    clearTimer(reconnectTimeoutRef);
+  }
+
+  function sessionIsCurrent(sessionId) {
+    return mountedRef.current && sessionIdRef.current === sessionId;
+  }
+
+  function markConnected(sessionId) {
+    if (!sessionIsCurrent(sessionId)) return;
+
+    clearAgentTimeout();
+    clearReconnectTimeout();
+    setPhase("connected");
+  }
+
+  function startAgentTimeout(sessionId) {
+    clearAgentTimeout();
+
+    agentTimeoutRef.current = window.setTimeout(() => {
+      if (!sessionIsCurrent(sessionId)) return;
+
+      void endSession(
+        "error",
+        describeVoiceError(voiceError("AGENT_TIMEOUT"), "agent")
+      );
+    }, AGENT_JOIN_TIMEOUT_MS);
+  }
+
+  function startReconnectTimeout(sessionId) {
+    clearReconnectTimeout();
+
+    reconnectTimeoutRef.current = window.setTimeout(() => {
+      if (!sessionIsCurrent(sessionId)) return;
+
+      void endSession(
+        "error",
+        describeVoiceError(
+          { name: "ConnectionError", reasonName: "ServerUnreachable" },
+          "connection"
+        )
+      );
+    }, RECONNECT_TIMEOUT_MS);
+  }
+
+  async function endSession(finalPhase = "ended", sessionError = null) {
+    intentionalStopRef.current = true;
+    reconnectingRef.current = false;
+    sessionIdRef.current += 1;
+    clearTimers();
+
+    tokenAbortRef.current?.abort();
+    tokenAbortRef.current = null;
+
+    const room = roomRef.current;
+    const cleanupRoom = roomCleanupRef.current;
+    roomRef.current = null;
+    roomCleanupRef.current = null;
+
+    setPhase(finalPhase);
+    setMicState("off");
+    setAudioBlocked(false);
+    setStartedAt(null);
+    setError(sessionError);
+
+    cleanupRoom?.();
+    disposeAllAudio(audioElementsRef.current);
+
+    if (room) {
+      try {
+        await room.disconnect(true);
+      } catch (disconnectError) {
+        console.warn("Could not close the voice session cleanly", disconnectError);
+      }
     }
-    audioElementsRef.current.clear();
+  }
+
+  function attachRoomHandlers(room, sessionId) {
+    const cleanups = [];
+    const on = (event, handler) => {
+      room.on(event, handler);
+      cleanups.push(() => {
+        try {
+          room.off(event, handler);
+        } catch (removeError) {
+          console.warn("Could not remove a voice event handler", removeError);
+        }
+      });
+    };
+
+    on(RoomEvent.TrackSubscribed, attachAudio);
+    on(RoomEvent.TrackUnsubscribed, detachAudio);
+
+    on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
+      if (!sessionIsCurrent(sessionId) || topic !== "transcripts") return;
+
+      try {
+        const message = JSON.parse(new TextDecoder().decode(payload));
+        if (message.type !== "transcript" || !message.text) return;
+
+        const normalized = {
+          ...message,
+          role: message.role === "assistant" ? "assistant" : "user",
+          isFinal: Boolean(message.isFinal),
+        };
+
+        setTranscripts((previous) => mergeTranscript(previous, normalized));
+      } catch (decodeError) {
+        console.error("Invalid transcript message", decodeError);
+      }
+    });
+
+    on(RoomEvent.AudioPlaybackStatusChanged, () => {
+      if (!sessionIsCurrent(sessionId)) return;
+      setAudioBlocked(!room.canPlaybackAudio);
+    });
+
+    on(RoomEvent.LocalTrackPublished, (publication) => {
+      if (!sessionIsCurrent(sessionId)) return;
+      if (publication.source === Track.Source.Microphone) {
+        setMicState("active");
+      }
+    });
+
+    on(RoomEvent.LocalTrackUnpublished, (publication) => {
+      if (!sessionIsCurrent(sessionId)) return;
+      if (publication.source === Track.Source.Microphone) {
+        setMicState("off");
+      }
+    });
+
+    on(RoomEvent.TrackMuted, (publication, participant) => {
+      if (!sessionIsCurrent(sessionId)) return;
+      if (
+        participant.identity === room.localParticipant.identity &&
+        publication.source === Track.Source.Microphone
+      ) {
+        setMicState("muted");
+      }
+    });
+
+    on(RoomEvent.TrackUnmuted, (publication, participant) => {
+      if (!sessionIsCurrent(sessionId)) return;
+      if (
+        participant.identity === room.localParticipant.identity &&
+        publication.source === Track.Source.Microphone
+      ) {
+        setMicState("active");
+      }
+    });
+
+    on(RoomEvent.ParticipantConnected, () => {
+      if (!sessionIsCurrent(sessionId)) return;
+      if (hasAgent(room)) markConnected(sessionId);
+    });
+
+    on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (
+        !sessionIsCurrent(sessionId) ||
+        intentionalStopRef.current ||
+        reconnectingRef.current
+      ) {
+        return;
+      }
+
+      if (isAgentParticipant(participant, room)) {
+        void endSession("ended");
+      }
+    });
+
+    on(RoomEvent.Reconnecting, () => {
+      if (!sessionIsCurrent(sessionId) || intentionalStopRef.current) return;
+
+      reconnectingRef.current = true;
+      clearAgentTimeout();
+      setPhase("reconnecting");
+      startReconnectTimeout(sessionId);
+    });
+
+    on(RoomEvent.Reconnected, () => {
+      if (!sessionIsCurrent(sessionId) || intentionalStopRef.current) return;
+
+      reconnectingRef.current = false;
+      clearReconnectTimeout();
+
+      if (hasAgent(room)) {
+        markConnected(sessionId);
+      } else {
+        setPhase("waiting_for_agent");
+        startAgentTimeout(sessionId);
+      }
+    });
+
+    on(RoomEvent.Disconnected, (reason) => {
+      if (!sessionIsCurrent(sessionId) || intentionalStopRef.current) return;
+
+      if (ENDED_DISCONNECT_REASONS.has(reason)) {
+        void endSession("ended");
+        return;
+      }
+
+      const reasonName =
+        reason === DisconnectReason.JOIN_FAILURE ||
+        reason === DisconnectReason.SIGNAL_CLOSE
+          ? "WebSocket"
+          : "ServerUnreachable";
+
+      void endSession(
+        "error",
+        describeVoiceError(
+          { name: "ConnectionError", reasonName },
+          "connection"
+        )
+      );
+    });
+
+    on(RoomEvent.MediaDevicesError, (mediaError) => {
+      if (!sessionIsCurrent(sessionId) || intentionalStopRef.current) return;
+
+      const failure = MediaDeviceFailure.getFailure(mediaError);
+      const mappedError = failure
+        ? voiceError(failure, mediaError)
+        : mediaError;
+
+      void endSession(
+        "error",
+        describeVoiceError(mappedError, "microphone")
+      );
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }
+
+  async function ensureMicrophoneAccess() {
+    if (!window.isSecureContext) {
+      throw voiceError("INSECURE_CONTEXT");
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw voiceError("MEDIA_UNSUPPORTED");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: AUDIO_CAPTURE_OPTIONS,
+    });
+
+    stream.getTracks().forEach((track) => track.stop());
   }
 
   async function startSession() {
-    if (isStartingRef.current || roomRef.current) return;
+    if (startInFlightRef.current || roomRef.current) return;
 
-    isStartingRef.current = true;
-    setIsConnecting(true);
-    setTranscripts([]);
-    setElapsed(0);
+    startInFlightRef.current = true;
+    const sessionId = sessionIdRef.current + 1;
+    sessionIdRef.current = sessionId;
+    intentionalStopRef.current = false;
+    reconnectingRef.current = false;
+    setStartedAt(null);
     transcriptPinnedRef.current = true;
 
-    const controller = new AbortController();
-    startAbortRef.current = controller;
-
+    let controller = null;
+    let tokenTimedOut = false;
+    let stage = "permission";
     let room;
 
     try {
-      setError("");
-      setStatus("Requesting token...");
+      setPhase("requesting_mic");
+      setMicState("requesting");
+      setAudioBlocked(false);
+      setError(null);
+      setTranscripts([]);
+
+      await ensureMicrophoneAccess();
+      if (!sessionIsCurrent(sessionId)) return;
+
+      setPhase("connecting");
+      stage = "token";
 
       const trimmedRun = runLabel.trim();
       const tokenPath = trimmedRun
         ? `/api/generate-token?run_id=${encodeURIComponent(trimmedRun)}`
         : "/api/generate-token";
 
-      const { serverUrl, token, roomName } = await apiGet(tokenPath, {
+      controller = new AbortController();
+      tokenAbortRef.current = controller;
+      tokenTimeoutRef.current = window.setTimeout(() => {
+        tokenTimedOut = true;
+        controller.abort();
+      }, TOKEN_TIMEOUT_MS);
+
+      const { serverUrl, token } = await apiGet(tokenPath, {
         signal: controller.signal,
       });
+      clearTokenTimeout();
+      if (!sessionIsCurrent(sessionId)) return;
 
-      if (controller.signal.aborted) return;
+      stage = "connection";
 
-      room = new Room();
+      room = new Room({
+        audioCaptureDefaults: AUDIO_CAPTURE_OPTIONS,
+        disconnectOnPageLeave: true,
+      });
       roomRef.current = room;
+      roomCleanupRef.current = attachRoomHandlers(room, sessionId);
 
-      room.on(RoomEvent.TrackSubscribed, attachAudio);
-      room.on(RoomEvent.TrackUnsubscribed, detachAudio);
-
-      room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
-        if (topic !== "transcripts") return;
-
-        try {
-          const message = JSON.parse(new TextDecoder().decode(payload));
-          if (message.type !== "transcript" || !message.text) return;
-
-          const normalized = {
-            ...message,
-            role: message.role === "assistant" ? "assistant" : "user",
-            isFinal: Boolean(message.isFinal),
-          };
-
-          setTranscripts((previous) =>
-            mergeTranscript(previous, normalized)
-          );
-        } catch (err) {
-          console.error("Invalid transcript message", err);
-        }
+      await room.connect(serverUrl, token, {
+        peerConnectionTimeout: CONNECTION_TIMEOUT_MS,
+        websocketTimeout: CONNECTION_TIMEOUT_MS,
+        maxRetries: 2,
       });
 
-      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
-        setAudioBlocked(!room.canPlaybackAudio);
-      });
-
-      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        const remaining = [...room.remoteParticipants.values()].filter(
-          (remote) => remote.identity !== participant.identity
-        );
-
-        if (remaining.length === 0) {
-          stopSession("Call ended").catch((err) => {
-            console.error("Could not end the call cleanly", err);
-          });
-        }
-      });
-
-      room.on(RoomEvent.Disconnected, (reason) => {
-        console.warn("LiveKit disconnected:", reason);
-
-        if (roomRef.current === room) {
-          roomRef.current = null;
-          detachAllAudio();
-          setIsConnected(false);
-          setAudioBlocked(false);
-          setElapsed(0);
-          setStatus("Disconnected");
-        }
-      });
-
-      setStatus("Connecting...");
-      await room.connect(serverUrl, token);
-
-      if (controller.signal.aborted) {
-        await room.disconnect();
+      if (!sessionIsCurrent(sessionId)) {
+        await room.disconnect(true);
         return;
       }
 
-      await room.localParticipant.setMicrophoneEnabled(true);
+      setStartedAt(Date.now());
+      stage = "microphone";
+
+      const publication = await room.localParticipant.setMicrophoneEnabled(
+        true,
+        AUDIO_CAPTURE_OPTIONS
+      );
+
+      if (!sessionIsCurrent(sessionId)) {
+        await room.disconnect(true);
+        return;
+      }
+
+      if (!publication) {
+        throw voiceError("MIC_UNAVAILABLE");
+      }
+
+      setMicState("active");
 
       try {
         await room.startAudio();
@@ -228,40 +589,34 @@ export default function LiveCall({ admin = false }) {
         setAudioBlocked(true);
       }
 
-      if (controller.signal.aborted) {
-        await room.disconnect();
+      if (!sessionIsCurrent(sessionId)) {
+        await room.disconnect(true);
         return;
       }
 
-      setIsConnected(true);
-      setStatus(`Connected · ${roomName}`);
-    } catch (err) {
-      if (controller.signal.aborted) {
-        setStatus("Disconnected");
-        return;
+      if (hasAgent(room)) {
+        markConnected(sessionId);
+      } else {
+        setPhase("waiting_for_agent");
+        startAgentTimeout(sessionId);
       }
+    } catch (startError) {
+      if (!sessionIsCurrent(sessionId)) return;
 
-      console.error("Could not start LiveKit session:", err);
-      setError(err.message || "Connection failed");
-      setStatus("Connection failed");
-      setIsConnected(false);
+      const failure = tokenTimedOut
+        ? describeVoiceError(voiceError("TOKEN_TIMEOUT"), "token")
+        : describeVoiceError(startError, stage);
 
-      if (roomRef.current === room) {
-        roomRef.current = null;
-      }
-
-      detachAllAudio();
-
-      if (room) {
-        await room.disconnect();
-      }
+      console.error("Could not start the voice session", startError);
+      await endSession("error", failure);
     } finally {
-      if (startAbortRef.current === controller) {
-        startAbortRef.current = null;
+      clearTokenTimeout();
+
+      if (controller && tokenAbortRef.current === controller) {
+        tokenAbortRef.current = null;
       }
 
-      isStartingRef.current = false;
-      setIsConnecting(false);
+      startInFlightRef.current = false;
     }
   }
 
@@ -272,49 +627,41 @@ export default function LiveCall({ admin = false }) {
     try {
       await room.startAudio();
       setAudioBlocked(false);
-    } catch (err) {
-      console.error("Could not start audio playback", err);
+    } catch (audioError) {
+      console.error("Could not start audio playback", audioError);
     }
-  }
-
-  async function stopSession(finalStatus = "Disconnected") {
-    startAbortRef.current?.abort();
-    startAbortRef.current = null;
-
-    const room = roomRef.current;
-    roomRef.current = null;
-
-    setIsConnected(false);
-    setAudioBlocked(false);
-    setElapsed(0);
-
-    if (room) {
-      detachAllAudio();
-      await room.disconnect();
-    }
-
-    setStatus(finalStatus);
   }
 
   useEffect(() => {
+    const audioElements = audioElementsRef.current;
+    mountedRef.current = true;
+
     return () => {
-      startAbortRef.current?.abort();
-      detachAllAudio();
-      roomRef.current?.disconnect();
+      mountedRef.current = false;
+      intentionalStopRef.current = true;
+      reconnectingRef.current = false;
+      sessionIdRef.current += 1;
+      clearTimer(tokenTimeoutRef);
+      clearTimer(agentTimeoutRef);
+      clearTimer(reconnectTimeoutRef);
+      tokenAbortRef.current?.abort();
+      tokenAbortRef.current = null;
+
+      const room = roomRef.current;
+      const cleanupRoom = roomCleanupRef.current;
       roomRef.current = null;
+      roomCleanupRef.current = null;
+
+      cleanupRoom?.();
+      disposeAllAudio(audioElements);
+
+      if (room) {
+        room.disconnect(true).catch((disconnectError) => {
+          console.warn("Could not close the voice session cleanly", disconnectError);
+        });
+      }
     };
   }, []);
-
-  useEffect(() => {
-    if (!isConnected) return undefined;
-
-    const startedAt = Date.now();
-    const interval = window.setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [isConnected]);
 
   useEffect(() => {
     const viewport = transcriptViewportRef.current;
@@ -341,18 +688,60 @@ export default function LiveCall({ admin = false }) {
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }, [transcripts]);
 
-  const phase = error
-    ? "error"
-    : isConnected
-      ? "live"
-      : isConnecting
-        ? "connecting"
-        : status === "Call ended"
-          ? "ended"
-          : "idle";
+  const isStarting = ["requesting_mic", "connecting"].includes(phase);
+  const isWaiting = phase === "waiting_for_agent";
+  const isConnected = phase === "connected";
+  const isReconnecting = phase === "reconnecting";
+  const canStop = isStarting || isWaiting || isConnected || isReconnecting;
+
+  const connectionKind = isConnected
+    ? "connected"
+    : isReconnecting
+      ? "reconnecting"
+      : isWaiting
+        ? "waiting"
+        : isStarting
+          ? "connecting"
+          : phase === "error"
+            ? "error"
+            : "disconnected";
+  const connection = CONNECTION_STATES[connectionKind];
+  const microphone = MICROPHONE_STATES[micState] || MICROPHONE_STATES.off;
+  const MicrophoneIcon = microphone.icon;
+
+  const orbPhase = isConnected
+    ? "live"
+    : isReconnecting
+      ? "reconnecting"
+      : isWaiting
+        ? "waiting"
+        : isStarting
+          ? "connecting"
+          : phase === "error"
+            ? "error"
+            : phase === "ended"
+              ? "ended"
+              : "idle";
+
+  let statusText = "Ready to start a voice session.";
+
+  if (phase === "requesting_mic") {
+    statusText = "Waiting for microphone permission...";
+  } else if (phase === "connecting") {
+    statusText = "Connecting to the voice service...";
+  } else if (phase === "waiting_for_agent") {
+    statusText = "Connected. Waiting for the receptionist to join...";
+  } else if (isConnected) {
+    statusText = "Connected. Speak naturally.";
+  } else if (isReconnecting) {
+    statusText = "Connection interrupted. Reconnecting...";
+  } else if (phase === "ended") {
+    statusText = "Call ended. You can start a new session.";
+  } else if (phase === "error") {
+    statusText = "The call is disconnected. Review the error and try again.";
+  }
 
   const finalCount = transcripts.filter((item) => item.isFinal).length;
-  const canStop = isConnecting || isConnected;
 
   return (
     <div className="space-y-6 animate-fade-up">
@@ -362,42 +751,20 @@ export default function LiveCall({ admin = false }) {
         title="Your AI receptionist"
         description="Start a voice session and watch the conversation unfold in real time. The receptionist can check availability and book appointments while you speak."
         actions={
-          <Badge
-            variant={
-              isConnected
-                ? "success"
-                : isConnecting
-                  ? "warning"
-                  : error
-                    ? "destructive"
-                    : phase === "ended"
-                      ? "secondary"
-                      : "outline"
-            }
-            className="px-3 py-1"
-          >
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                isConnected
-                  ? "bg-success"
-                  : isConnecting
-                    ? "animate-pulse bg-warning"
-                    : error
-                      ? "bg-destructive"
-                      : "bg-muted-foreground"
-              )}
-            />
-            {isConnected
-              ? "Live now"
-              : isConnecting
-                ? "Connecting"
-                : error
-                  ? "Needs attention"
-                  : phase === "ended"
-                    ? "Ended"
-                    : "Ready"}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={connection.variant} className="px-3 py-1">
+              <span
+                className={cn("size-1.5 rounded-full", connection.dot)}
+              />
+              {connection.label}
+            </Badge>
+            <Badge variant={microphone.variant} className="px-3 py-1">
+              <MicrophoneIcon
+                className={cn(microphone.spinning && "animate-spin")}
+              />
+              {microphone.label}
+            </Badge>
+          </div>
         }
       />
 
@@ -421,7 +788,11 @@ export default function LiveCall({ admin = false }) {
                 </div>
               </div>
 
-              <StatusOrb phase={phase} status={status} elapsed={elapsed} />
+              <StatusOrb
+                phase={orbPhase}
+                status={statusText}
+                startedAt={startedAt}
+              />
 
               {audioBlocked && (
                 <Alert variant="warning" className="mb-3 text-left">
@@ -445,8 +816,8 @@ export default function LiveCall({ admin = false }) {
               {error && (
                 <Alert variant="destructive" className="mb-3 text-left">
                   <TriangleAlert />
-                  <AlertTitle>Could not start the call</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertTitle>{error.title}</AlertTitle>
+                  <AlertDescription>{error.message}</AlertDescription>
                 </Alert>
               )}
 
@@ -454,19 +825,23 @@ export default function LiveCall({ admin = false }) {
                 {canStop ? (
                   <Button
                     type="button"
-                    variant={isConnecting ? "outline" : "destructive"}
-                    size="xl"
-                    onClick={() =>
-                      stopSession(isConnecting ? "Disconnected" : "Call ended")
+                    variant={
+                      isConnected || isReconnecting ? "destructive" : "outline"
                     }
+                    size="xl"
+                    onClick={() => {
+                      void endSession("ended");
+                    }}
                     className="w-full"
                   >
-                    {isConnecting ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
+                    {isConnected || isReconnecting ? (
                       <PhoneOff />
+                    ) : (
+                      <Loader2 className="animate-spin" />
                     )}
-                    {isConnecting ? "Cancel connection" : "End call"}
+                    {isConnected || isReconnecting
+                      ? "End call"
+                      : "Cancel connection"}
                   </Button>
                 ) : (
                   <Button
@@ -476,15 +851,13 @@ export default function LiveCall({ admin = false }) {
                     className="w-full shadow-lg shadow-primary/20"
                   >
                     <Mic />
-                    Start microphone
+                    Start voice call
                   </Button>
                 )}
               </div>
 
               <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-                {isConnected
-                  ? "Connected to the LiveKit room. Speak normally."
-                  : "Your browser will ask for microphone permission."}
+                {statusText}
               </p>
             </div>
           </Card>
@@ -513,7 +886,7 @@ export default function LiveCall({ admin = false }) {
                   onChange={(event) => setRunLabel(event.target.value)}
                   placeholder="e.g. baseline-1"
                   maxLength={48}
-                  disabled={isConnecting || isConnected}
+                  disabled={canStop}
                   className="bg-background"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -564,10 +937,16 @@ export default function LiveCall({ admin = false }) {
 
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{transcripts.length} messages</Badge>
-                {isConnected && (
+                {isConnected && micState === "active" && (
                   <Badge variant="success">
                     <span className="size-1.5 animate-pulse rounded-full bg-success" />
                     Listening
+                  </Badge>
+                )}
+                {isReconnecting && (
+                  <Badge variant="warning">
+                    <span className="size-1.5 animate-pulse rounded-full bg-warning" />
+                    Reconnecting
                   </Badge>
                 )}
               </div>
@@ -603,8 +982,12 @@ export default function LiveCall({ admin = false }) {
 
           <div className="flex items-center justify-between border-t px-5 py-3 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <Mic className="size-3.5" />
-              Microphone {isConnected ? "active" : "idle"}
+              {micState === "active" ? (
+                <Mic className="size-3.5" />
+              ) : (
+                <MicOff className="size-3.5" />
+              )}
+              {microphone.label}
             </span>
             <span>{finalCount} final</span>
           </div>

@@ -290,8 +290,8 @@ class ClinicReceptionist(Agent):
 
 @server.rtc_session(agent_name=AGENT_NAME)
 async def clinic_receptionist(ctx: agents.JobContext):
-    await ctx.connect()
     await _ensure_database()
+    await ctx.connect()
 
     call_id = str(uuid4())
     run_id = _run_id_from_job(ctx)

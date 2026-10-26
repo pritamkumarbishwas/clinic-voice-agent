@@ -1,9 +1,10 @@
+import { memo } from "react";
 import { Bot, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { formatTime } from "@/lib/format";
 
-function TranscriptMessage({ item }) {
+const TranscriptMessage = memo(function TranscriptMessage({ item }) {
   const isAssistant = item.role === "assistant";
   const Icon = isAssistant ? Bot : UserRound;
   const timestamp = item.receivedAt ? formatTime(item.receivedAt) : "";
@@ -62,6 +63,6 @@ function TranscriptMessage({ item }) {
       </div>
     </div>
   );
-}
+});
 
 export { TranscriptMessage };
