@@ -20,6 +20,7 @@ COOKIE_SAMESITE_VALUES = {"lax", "strict", "none"}
 JWT_ALGORITHMS = {"HS256", "HS384", "HS512"}
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 MIN_TURN_DETECTOR_VAD_SILENCE = 0.25
+TTS_SAMPLE_RATES = {8000, 16000, 22050, 24000, 32000, 44100, 48000}
 
 
 def _text(name: str, default: str) -> str:
@@ -111,11 +112,14 @@ class Settings:
 
     llm_model: str
     llm_timeout_seconds: float
+    llm_max_tokens: int
 
     tts_language: str
     tts_model: str
     tts_speaker: str
     tts_pace: float
+    tts_sample_rate: int
+    tts_timeout_seconds: float
     tts_min_buffer_size: int
     tts_max_chunk_length: int
 
@@ -129,6 +133,7 @@ class Settings:
     max_endpointing_delay: float
     interruption_min_duration: float
     preemptive_tts: bool
+    session_max_unrecoverable_errors: int
 
     analysis_model: str
     analysis_max_attempts: int
@@ -174,10 +179,13 @@ class Settings:
             ),
             llm_model=_text("LLM_MODEL", "sarvam-105b"),
             llm_timeout_seconds=_float("LLM_TIMEOUT_SECONDS", 12.0),
+            llm_max_tokens=_int("LLM_MAX_TOKENS", 200),
             tts_language=_text("TTS_LANGUAGE", "hi-IN"),
             tts_model=_text("TTS_MODEL", "bulbul:v3"),
             tts_speaker=_text("TTS_SPEAKER", "shubh"),
             tts_pace=_float("TTS_PACE", 1.0),
+            tts_sample_rate=_int("TTS_SAMPLE_RATE", 24000),
+            tts_timeout_seconds=_float("TTS_TIMEOUT_SECONDS", 8.0),
             tts_min_buffer_size=_int("TTS_MIN_BUFFER_SIZE", 50),
             tts_max_chunk_length=_int("TTS_MAX_CHUNK_LENGTH", 150),
             vad_min_speech_duration=_float(
@@ -201,6 +209,9 @@ class Settings:
                 "INTERRUPTION_MIN_DURATION", 0.5
             ),
             preemptive_tts=_bool("PREEMPTIVE_TTS", False),
+            session_max_unrecoverable_errors=_int(
+                "SESSION_MAX_UNRECOVERABLE_ERRORS", 10
+            ),
             analysis_model=_text("ANALYSIS_MODEL", "sarvam-105b"),
             analysis_max_attempts=_int("ANALYSIS_MAX_ATTEMPTS", 3),
             analysis_poll_seconds=_float("ANALYSIS_POLL_SECONDS", 2.0),
@@ -286,14 +297,25 @@ class Settings:
                 f"LOG_LEVEL must be one of {sorted(LOG_LEVELS)}"
             )
 
-        if self.tts_pace <= 0:
-            errors.append("TTS_PACE must be greater than 0")
+        if not 0.3 <= self.tts_pace <= 3.0:
+            errors.append("TTS_PACE must be between 0.3 and 3.0")
 
-        if self.tts_min_buffer_size < 0:
-            errors.append("TTS_MIN_BUFFER_SIZE cannot be negative")
+        if not 30 <= self.tts_min_buffer_size <= 200:
+            errors.append("TTS_MIN_BUFFER_SIZE must be between 30 and 200")
 
-        if self.tts_max_chunk_length <= 0:
-            errors.append("TTS_MAX_CHUNK_LENGTH must be greater than 0")
+        if not 50 <= self.tts_max_chunk_length <= 500:
+            errors.append(
+                "TTS_MAX_CHUNK_LENGTH must be between 50 and 500"
+            )
+
+        if self.tts_sample_rate not in TTS_SAMPLE_RATES:
+            errors.append(
+                "TTS_SAMPLE_RATE must be one of "
+                f"{sorted(TTS_SAMPLE_RATES)}"
+            )
+
+        if self.tts_timeout_seconds <= 0:
+            errors.append("TTS_TIMEOUT_SECONDS must be greater than 0")
 
         if self.stt_endpointing != "vad":
             errors.append(
@@ -308,6 +330,14 @@ class Settings:
 
         if self.llm_timeout_seconds <= 0:
             errors.append("LLM_TIMEOUT_SECONDS must be greater than 0")
+
+        if self.llm_max_tokens <= 0:
+            errors.append("LLM_MAX_TOKENS must be greater than 0")
+
+        if self.session_max_unrecoverable_errors <= 0:
+            errors.append(
+                "SESSION_MAX_UNRECOVERABLE_ERRORS must be greater than 0"
+            )
 
         if self.vad_min_speech_duration <= 0:
             errors.append(

@@ -16,6 +16,8 @@ from livekit.agents import (
     APIConnectOptions,
     RunContext,
     function_tool,
+    tokenize,
+    tts,
 )
 from livekit.agents.llm import ChatMessage
 from livekit.agents.voice.agent_session import SessionConnectOptions
@@ -54,6 +56,7 @@ STT_REPEAT_PROMPT = (
 )
 STT_REPEAT_COOLDOWN_SECONDS = 4.0
 LLM_MAX_RETRIES = 0
+TTS_MAX_RETRIES = 0
 LLM_FALLBACK_PROMPT = (
     "Sorry, main clinic ki AI receptionist hoon aur abhi system mein "
     "thodi problem aa rahi hai. Kripya thodi der baad dobara call karein."
@@ -110,7 +113,9 @@ FAQ RULES
 LANGUAGE
 - Speak natural Indian Hinglish by default.
 - Match the caller's Hindi or English preference.
-- Keep responses short and ask one question at a time.
+- Speak at most two short sentences per turn. Use three only when confirming a booking.
+- Never use markdown, bullet lists, or long explanations in spoken replies.
+- Ask one question at a time.
 - Use the conversation so far. Do not ask again for details the caller already provided.
 - When a booking is requested, collect doctor, date, time, patient name, and phone one item at a time.
 - If details are missing, ask only for the next missing item in one clear question.
@@ -179,6 +184,10 @@ def _is_llm_error(error) -> bool:
     return getattr(error, "type", None) == "llm_error"
 
 
+def _is_tts_error(error) -> bool:
+    return getattr(error, "type", None) == "tts_error"
+
+
 def _is_timeout_error(error) -> bool:
     current = getattr(error, "error", error)
     seen: set[int] = set()
@@ -226,6 +235,40 @@ def _run_id_from_job(ctx: agents.JobContext) -> str | None:
     return sanitize_run_id(payload.get("run_id"))
 
 
+def _build_tts() -> tts.TTS:
+    """Stream from Sarvam, falling back to its HTTP API if the stream fails."""
+    tts_options = {
+        "target_language_code": settings.tts_language,
+        "model": settings.tts_model,
+        "speaker": settings.tts_speaker,
+        "pace": settings.tts_pace,
+        "speech_sample_rate": settings.tts_sample_rate,
+        "min_buffer_size": settings.tts_min_buffer_size,
+        "max_chunk_length": settings.tts_max_chunk_length,
+        "api_key": settings.sarvam_api_key,
+    }
+    streaming = sarvam.TTS(**tts_options)
+    http_fallback = tts.StreamAdapter(
+        tts=sarvam.TTS(**tts_options),
+        sentence_tokenizer=tokenize.basic.SentenceTokenizer(),
+    )
+    return tts.FallbackAdapter(
+        [streaming, http_fallback],
+        max_retry_per_tts=TTS_MAX_RETRIES,
+        sample_rate=settings.tts_sample_rate,
+    )
+
+
+async def _close_tts(tts_instance: tts.TTS) -> None:
+    """Close the fallback adapter and its underlying provider clients."""
+    with contextlib.suppress(Exception):
+        await tts_instance.aclose()
+
+    for child in getattr(tts_instance, "_tts_instances", ()):
+        with contextlib.suppress(Exception):
+            await child.aclose()
+
+
 def _config_snapshot() -> dict:
     return {
         "stt": {
@@ -238,6 +281,7 @@ def _config_snapshot() -> dict:
         "llm": {
             "model": settings.llm_model,
             "timeout_seconds": settings.llm_timeout_seconds,
+            "max_tokens": settings.llm_max_tokens,
             "max_retries": LLM_MAX_RETRIES,
         },
         "tts": {
@@ -245,6 +289,9 @@ def _config_snapshot() -> dict:
             "model": settings.tts_model,
             "speaker": settings.tts_speaker,
             "pace": settings.tts_pace,
+            "sample_rate": settings.tts_sample_rate,
+            "timeout_seconds": settings.tts_timeout_seconds,
+            "max_retries": TTS_MAX_RETRIES,
             "min_buffer_size": settings.tts_min_buffer_size,
             "max_chunk_length": settings.tts_max_chunk_length,
         },
@@ -271,7 +318,13 @@ def _session_connect_options() -> SessionConnectOptions:
             max_retry=LLM_MAX_RETRIES,
             retry_interval=0.0,
             timeout=settings.llm_timeout_seconds,
-        )
+        ),
+        tts_conn_options=APIConnectOptions(
+            max_retry=TTS_MAX_RETRIES,
+            retry_interval=0.0,
+            timeout=settings.tts_timeout_seconds,
+        ),
+        max_unrecoverable_errors=settings.session_max_unrecoverable_errors,
     )
 
 
@@ -405,6 +458,13 @@ async def clinic_receptionist(ctx: agents.JobContext):
     stt_prompt = format_stt_prompt(doctor_docs)
 
     try:
+        tts_impl = _build_tts()
+    except Exception:
+        logger.exception("Could not initialize TTS")
+        ctx.shutdown("tts unavailable")
+        return
+
+    try:
         await calls.insert_one(
             {
                 "call_id": call_id,
@@ -420,6 +480,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
                 "stt_timeout_count": 0,
                 "empty_transcript_count": 0,
                 "llm_error_count": 0,
+                "tts_error_count": 0,
                 "booking_outcome": "not_booked",
                 "appointment_id": None,
                 "analysis_status": "pending",
@@ -430,6 +491,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
         )
     except Exception:
         logger.exception("Could not create the call record for %s", ctx.room.name)
+        await _close_tts(tts_impl)
         ctx.shutdown("database unavailable")
         return
 
@@ -457,15 +519,10 @@ async def clinic_receptionist(ctx: agents.JobContext):
         llm=sarvam.LLM(
             model=settings.llm_model,
             timeout=httpx.Timeout(settings.llm_timeout_seconds),
+            max_tokens=settings.llm_max_tokens,
+            api_key=settings.sarvam_api_key,
         ),
-        tts=sarvam.TTS(
-            target_language_code=settings.tts_language,
-            model=settings.tts_model,
-            speaker=settings.tts_speaker,
-            pace=settings.tts_pace,
-            min_buffer_size=settings.tts_min_buffer_size,
-            max_chunk_length=settings.tts_max_chunk_length,
-        ),
+        tts=tts_impl,
         turn_handling={
             "endpointing": {
                 "mode": "fixed",
@@ -496,6 +553,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     stt_timeout_count = 0
     empty_transcript_count = 0
     llm_error_count = 0
+    tts_error_count = 0
     llm_fallback_task: asyncio.Task | None = None
     last_repeat_prompt_at = 0.0
 
@@ -676,7 +734,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
                         {"call_id": call_id},
                         {"$push": {"tool_calls": {"$each": job[1]}}},
                     )
-                elif job[0] in ("stt_failure", "llm_failure"):
+                elif job[0] in (
+                    "stt_failure",
+                    "llm_failure",
+                    "tts_failure",
+                ):
                     await calls.update_one(
                         {"call_id": call_id},
                         {"$inc": {job[1]: 1}},
@@ -730,13 +792,29 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
     @session.on("error")
     def on_session_error(event):
-        nonlocal stt_error_count, llm_error_count
+        nonlocal stt_error_count, llm_error_count, tts_error_count
         error = getattr(event, "error", None)
 
         if _is_stt_error(error):
             stt_error_count += 1
             jobs.put_nowait(("stt_failure", "stt_error_count"))
             logger.warning("STT error on call %s: %s", call_id, error)
+            return
+
+        if _is_tts_error(error):
+            tts_error_count += 1
+            jobs.put_nowait(("tts_failure", "tts_error_count"))
+            reason = (
+                "timeout" if _is_timeout_error(error) else "error"
+            )
+            recoverable = bool(getattr(error, "recoverable", False))
+            logger.warning(
+                "TTS %s on call %s (recoverable=%s): %s",
+                reason,
+                call_id,
+                recoverable,
+                error,
+            )
             return
 
         if _is_llm_error(error):
@@ -821,10 +899,13 @@ async def clinic_receptionist(ctx: agents.JobContext):
         except Exception:
             logger.exception("Could not save call end state")
 
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(_close_tts(tts_impl), timeout=5)
+
         logger.info(
             "Call %s ended (barge-ins=%s, speech turns=%s, "
             "stt errors=%s, stt timeouts=%s, empty transcripts=%s, "
-            "llm errors=%s)",
+            "llm errors=%s, tts errors=%s)",
             call_id,
             barge_in_count,
             len(speech_handles),
@@ -832,6 +913,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
             stt_timeout_count,
             empty_transcript_count,
             llm_error_count,
+            tts_error_count,
         )
 
     ctx.add_shutdown_callback(finalize)

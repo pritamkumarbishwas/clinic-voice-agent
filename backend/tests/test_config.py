@@ -69,6 +69,75 @@ def test_llm_timeout_must_be_positive(monkeypatch):
     assert "LLM_TIMEOUT_SECONDS must be greater than 0" in str(error.value)
 
 
+def test_llm_max_tokens_default(monkeypatch):
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+
+    assert Settings.from_env().llm_max_tokens == 200
+
+
+def test_llm_max_tokens_must_be_positive(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("LLM_MAX_TOKENS", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "LLM_MAX_TOKENS must be greater than 0" in str(error.value)
+
+
+def test_tts_defaults_are_clear_and_streaming(monkeypatch):
+    for key in (
+        "TTS_SAMPLE_RATE",
+        "TTS_TIMEOUT_SECONDS",
+        "TTS_PACE",
+        "TTS_MIN_BUFFER_SIZE",
+        "TTS_MAX_CHUNK_LENGTH",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    config = Settings.from_env()
+
+    assert config.tts_sample_rate == 24000
+    assert config.tts_timeout_seconds == 8.0
+    assert config.tts_pace == 1.0
+    assert config.tts_min_buffer_size == 50
+    assert config.tts_max_chunk_length == 150
+
+
+def test_tts_validation_matches_sarvam_limits(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("TTS_PACE", "0.2")
+    monkeypatch.setenv("TTS_MIN_BUFFER_SIZE", "20")
+    monkeypatch.setenv("TTS_MAX_CHUNK_LENGTH", "40")
+    monkeypatch.setenv("TTS_SAMPLE_RATE", "12345")
+    monkeypatch.setenv("TTS_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    message = str(error.value)
+    assert "TTS_PACE must be between 0.3 and 3.0" in message
+    assert "TTS_MIN_BUFFER_SIZE must be between 30 and 200" in message
+    assert "TTS_MAX_CHUNK_LENGTH must be between 50 and 500" in message
+    assert "TTS_SAMPLE_RATE must be one of" in message
+    assert "TTS_TIMEOUT_SECONDS must be greater than 0" in message
+
+
+def test_session_error_threshold_default_and_validation(monkeypatch):
+    monkeypatch.delenv("SESSION_MAX_UNRECOVERABLE_ERRORS", raising=False)
+    assert Settings.from_env().session_max_unrecoverable_errors == 10
+
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("SESSION_MAX_UNRECOVERABLE_ERRORS", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "SESSION_MAX_UNRECOVERABLE_ERRORS must be greater than 0" in str(
+        error.value
+    )
+
+
 def test_vad_silence_below_turn_detector_minimum_is_rejected(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.setenv("VAD_MIN_SILENCE_DURATION", "0.2")

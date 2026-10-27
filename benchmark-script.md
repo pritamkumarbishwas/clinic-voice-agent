@@ -57,6 +57,22 @@ Record the raw final transcript for each case in the run notes. Runtime STT
 errors, timeouts, and empty transcripts appear automatically in the latency
 report.
 
+## TTS quality spot-check
+
+During the same calls, check the assistant audio:
+
+- The Hindi voice is clear and natural at `TTS_PACE=1.0`; no robotic clipping.
+- The first spoken word arrives promptly, confirming streaming is active.
+- Replies stay to one or two short sentences (three only for a booking
+  confirmation).
+- No markdown, bullet points, or long paragraphs are read aloud.
+- `calls.tts_error_count` stays zero for a clean run.
+
+To exercise the fallback, temporarily block the Sarvam WebSocket endpoint while
+leaving HTTPS available; the HTTP TTS fallback should still speak. If both
+transports fail, the call should log a TTS error and remain alive rather than
+ending immediately.
+
 After the 20 calls:
 
 ```powershell

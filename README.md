@@ -32,7 +32,10 @@ Browser (React + LiveKit)          LiveKit Cloud               Sarvam
 
 During a call, the agent keeps the LiveKit chat context across turns. If the
 LLM errors or exceeds `LLM_TIMEOUT_SECONDS`, it logs the failure and speaks a
-short Hinglish fallback instead of leaving the caller in silence.
+short Hinglish fallback instead of leaving the caller in silence. TTS streams
+over Sarvam's WebSocket API and falls back to Sarvam's HTTP API if streaming
+fails. TTS errors are logged and counted; repeated failures do not immediately
+end the call.
 
 Flow after a call ends:
 
@@ -125,9 +128,13 @@ See `backend/.env.example` for the full list. The important groups are:
   uses Sarvam's server VAD and sends the active doctor roster as a terminology
   hint. Keyterm lists are not exposed by the current Sarvam plugin.)
 - LLM: `LLM_MODEL` (default `sarvam-105b`), `LLM_TIMEOUT_SECONDS`
-  (default `12.0`; on timeout the agent speaks a short Hinglish fallback)
+  (default `12.0`; on timeout the agent speaks a short Hinglish fallback),
+  `LLM_MAX_TOKENS` (default `200`; caps long spoken replies)
 - TTS: `TTS_LANGUAGE`, `TTS_MODEL`, `TTS_SPEAKER`, `TTS_PACE`,
+  `TTS_SAMPLE_RATE` (default `24000`), `TTS_TIMEOUT_SECONDS` (default `8.0`),
   `TTS_MIN_BUFFER_SIZE`, `TTS_MAX_CHUNK_LENGTH`
+- Session: `SESSION_MAX_UNRECOVERABLE_ERRORS` (default `10`; keeps the call
+  alive through repeated provider failures before LiveKit closes it)
 - VAD: `VAD_MIN_SPEECH_DURATION`, `VAD_MIN_SILENCE_DURATION`,
   `VAD_PREFIX_PADDING_DURATION`, `VAD_ACTIVATION_THRESHOLD`,
   `VAD_DEACTIVATION_THRESHOLD`
@@ -152,7 +159,7 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
   fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`,
   `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`,
-  `llm_error_count`
+  `llm_error_count`, `tts_error_count`
 - `call_turns`: one document per transcript turn with stage latencies
   (`endpoint_latency_ms`, `stt_latency_ms`, `llm_latency_ms`,
   `tts_latency_ms`, `end_to_audio_ms`, `playback_latency_ms`)
@@ -264,6 +271,8 @@ npm run build
 - No telephony or external CRM integration; MongoDB calls are the CRM.
 - The benchmark script is manual; results depend on network and caller speech.
 - LLM summaries can fail; the rule-based fallback keeps the pipeline usable.
+- TTS fallback uses the same Sarvam provider over HTTP; a full Sarvam outage
+  still affects both transports.
 - LiveKit credentials and a real phone/audio environment are required for
   end-to-end voice validation.
 - Public callers can start a session without login, so production deployments
