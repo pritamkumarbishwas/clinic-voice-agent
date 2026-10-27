@@ -117,6 +117,7 @@ See `backend/.env.example` for the full list. The important groups are:
   `AUTH_COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
 - Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`), `CORS_ORIGINS`
 - STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`
+  (`STT_ENDPOINTING` must stay `vad`; Sarvam realtime has no manual flush)
 - LLM: `LLM_MODEL` (default `sarvam-105b`)
 - TTS: `TTS_LANGUAGE`, `TTS_MODEL`, `TTS_SPEAKER`, `TTS_PACE`,
   `TTS_MIN_BUFFER_SIZE`, `TTS_MAX_CHUNK_LENGTH`

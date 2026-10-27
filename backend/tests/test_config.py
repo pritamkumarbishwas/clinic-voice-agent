@@ -39,6 +39,28 @@ def test_vad_defaults_are_tuned_for_natural_speech(monkeypatch):
     assert config.max_endpointing_delay == 2.50
 
 
+def test_vad_silence_below_turn_detector_minimum_is_rejected(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("VAD_MIN_SILENCE_DURATION", "0.2")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "VAD_MIN_SILENCE_DURATION must be at least 0.25" in str(
+        error.value
+    )
+
+
+def test_manual_stt_endpointing_is_rejected(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("STT_ENDPOINTING", "manual")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "STT_ENDPOINTING must be 'vad'" in str(error.value)
+
+
 def test_vad_validation_rejects_invalid_values(monkeypatch):
     _clear_vad_env(monkeypatch)
     _set_required_env(monkeypatch)

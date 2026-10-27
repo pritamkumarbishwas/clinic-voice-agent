@@ -19,6 +19,7 @@ FALSE_VALUES = {"0", "false", "no", "off"}
 COOKIE_SAMESITE_VALUES = {"lax", "strict", "none"}
 JWT_ALGORITHMS = {"HS256", "HS384", "HS512"}
 LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+MIN_TURN_DETECTOR_VAD_SILENCE = 0.25
 
 
 def _text(name: str, default: str) -> str:
@@ -288,13 +289,22 @@ class Settings:
         if self.tts_max_chunk_length <= 0:
             errors.append("TTS_MAX_CHUNK_LENGTH must be greater than 0")
 
+        if self.stt_endpointing != "vad":
+            errors.append(
+                "STT_ENDPOINTING must be 'vad'; Sarvam realtime does not "
+                "advertise manual_flush for manual endpointing"
+            )
+
         if self.vad_min_speech_duration <= 0:
             errors.append(
                 "VAD_MIN_SPEECH_DURATION must be greater than 0"
             )
 
-        if self.vad_min_silence_duration < 0:
-            errors.append("VAD_MIN_SILENCE_DURATION cannot be negative")
+        if self.vad_min_silence_duration < MIN_TURN_DETECTOR_VAD_SILENCE:
+            errors.append(
+                "VAD_MIN_SILENCE_DURATION must be at least "
+                f"{MIN_TURN_DETECTOR_VAD_SILENCE} for the turn detector"
+            )
 
         if self.vad_prefix_padding_duration < 0:
             errors.append(

@@ -190,7 +190,7 @@ def _config_snapshot() -> dict:
             "deactivation_threshold": settings.vad_deactivation_threshold,
         },
         "turn_handling": {
-            "turn_detection": "vad",
+            "turn_detection": "auto",
             "min_endpointing_delay": settings.min_endpointing_delay,
             "max_endpointing_delay": settings.max_endpointing_delay,
             "interruption_min_duration": settings.interruption_min_duration,
@@ -371,7 +371,6 @@ async def clinic_receptionist(ctx: agents.JobContext):
             max_chunk_length=settings.tts_max_chunk_length,
         ),
         turn_handling={
-            "turn_detection": "vad",
             "endpointing": {
                 "mode": "fixed",
                 "min_delay": settings.min_endpointing_delay,
