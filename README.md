@@ -30,6 +30,10 @@ Browser (React + LiveKit)          LiveKit Cloud               Sarvam
                              slots / appointments / benchmark_runs
 ```
 
+During a call, the agent keeps the LiveKit chat context across turns. If the
+LLM errors or exceeds `LLM_TIMEOUT_SECONDS`, it logs the failure and speaks a
+short Hinglish fallback instead of leaving the caller in silence.
+
 Flow after a call ends:
 
 1. `agent.py` writes the finished call and finalizes the transcript.
@@ -120,7 +124,8 @@ See `backend/.env.example` for the full list. The important groups are:
   `STT_TRANSCRIPTION_TIMEOUT` (`STT_ENDPOINTING` must stay `vad`; the agent
   uses Sarvam's server VAD and sends the active doctor roster as a terminology
   hint. Keyterm lists are not exposed by the current Sarvam plugin.)
-- LLM: `LLM_MODEL` (default `sarvam-105b`)
+- LLM: `LLM_MODEL` (default `sarvam-105b`), `LLM_TIMEOUT_SECONDS`
+  (default `12.0`; on timeout the agent speaks a short Hinglish fallback)
 - TTS: `TTS_LANGUAGE`, `TTS_MODEL`, `TTS_SPEAKER`, `TTS_PACE`,
   `TTS_MIN_BUFFER_SIZE`, `TTS_MAX_CHUNK_LENGTH`
 - VAD: `VAD_MIN_SPEECH_DURATION`, `VAD_MIN_SILENCE_DURATION`,
@@ -146,7 +151,8 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 - `clinic`: single clinic profile/FAQ used by the agent prompt
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
   fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`,
-  `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`
+  `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`,
+  `llm_error_count`
 - `call_turns`: one document per transcript turn with stage latencies
   (`endpoint_latency_ms`, `stt_latency_ms`, `llm_latency_ms`,
   `tts_latency_ms`, `end_to_audio_ms`, `playback_latency_ms`)

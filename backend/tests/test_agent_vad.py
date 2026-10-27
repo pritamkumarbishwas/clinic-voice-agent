@@ -9,6 +9,23 @@ def test_is_stt_error_only_matches_stt_errors():
     assert not agent._is_stt_error(None)
 
 
+def test_is_llm_error_only_matches_llm_errors():
+    assert agent._is_llm_error(SimpleNamespace(type="llm_error"))
+    assert not agent._is_llm_error(SimpleNamespace(type="stt_error"))
+    assert not agent._is_llm_error(None)
+
+
+def test_is_timeout_error_detects_wrapped_and_direct_timeouts():
+    direct = TimeoutError("timed out")
+    wrapped = RuntimeError("request failed")
+    wrapped.__cause__ = direct
+
+    assert agent._is_timeout_error(direct)
+    assert agent._is_timeout_error(wrapped)
+    assert agent._is_timeout_error(SimpleNamespace(error=direct))
+    assert not agent._is_timeout_error(RuntimeError("bad request"))
+
+
 def test_prewarm_loads_configured_silero_options(monkeypatch):
     captured = {}
 

@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import httpx
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import (
@@ -50,6 +51,17 @@ STT_REPEAT_PROMPT = (
     "Kya aap dobara bata sakte hain?"
 )
 STT_REPEAT_COOLDOWN_SECONDS = 4.0
+LLM_FALLBACK_PROMPT = (
+    "Sorry, abhi system mein thodi problem aa rahi hai. "
+    "Kripya thodi der baad dobara call karein."
+)
+LLM_GREETING_FALLBACK = (
+    "Namaste, main clinic ki AI receptionist hoon. "
+    "Abhi system mein thodi problem hai. "
+    "Kripya thodi der baad dobara call karein."
+)
+LLM_FALLBACK_COOLDOWN_SECONDS = 8.0
+LLM_FALLBACK_LIMIT = 2
 
 
 def prewarm(proc) -> None:
@@ -103,6 +115,13 @@ LANGUAGE
 - Speak natural Indian Hinglish by default.
 - Match the caller's Hindi or English preference.
 - Keep responses short and ask one question at a time.
+- Use the conversation so far. Do not ask again for details the caller already provided.
+- When a booking is requested, collect doctor, date, time, patient name, and phone one item at a time.
+- If details are missing, ask only for the next missing item in one clear question.
+
+EXAMPLE
+Caller: "Mujhe kal appointment chahiye."
+Reply: "Bilkul, kal ke liye appointment check karte hain. Aap kis doctor ko dikhana chahte hain?"
 
 CALLER SPEECH
 - If the caller's speech is unclear, incomplete, or garbled, ask them to repeat once. Do not guess.
@@ -160,6 +179,27 @@ def _is_stt_error(error) -> bool:
     return getattr(error, "type", None) == "stt_error"
 
 
+def _is_llm_error(error) -> bool:
+    return getattr(error, "type", None) == "llm_error"
+
+
+def _is_timeout_error(error) -> bool:
+    current = getattr(error, "error", error)
+    seen: set[int] = set()
+
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        if "timeout" in type(current).__name__.lower():
+            return True
+        current = getattr(current, "__cause__", None) or getattr(
+            current, "__context__", None
+        )
+
+    return False
+
+
 def _transcript_entry(role: str, text: str, message_id: str | None = None) -> dict:
     entry = {
         "role": role,
@@ -199,7 +239,10 @@ def _config_snapshot() -> dict:
             "endpointing": settings.stt_endpointing,
             "transcription_timeout": settings.stt_transcription_timeout,
         },
-        "llm": {"model": settings.llm_model},
+        "llm": {
+            "model": settings.llm_model,
+            "timeout_seconds": settings.llm_timeout_seconds,
+        },
         "tts": {
             "language": settings.tts_language,
             "model": settings.tts_model,
@@ -369,6 +412,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
                 "stt_error_count": 0,
                 "stt_timeout_count": 0,
                 "empty_transcript_count": 0,
+                "llm_error_count": 0,
                 "booking_outcome": "not_booked",
                 "appointment_id": None,
                 "analysis_status": "pending",
@@ -402,7 +446,10 @@ async def clinic_receptionist(ctx: agents.JobContext):
                 settings.vad_prefix_padding_duration * 1000
             ),
         ),
-        llm=sarvam.LLM(model=settings.llm_model),
+        llm=sarvam.LLM(
+            model=settings.llm_model,
+            timeout=httpx.Timeout(settings.llm_timeout_seconds),
+        ),
         tts=sarvam.TTS(
             target_language_code=settings.tts_language,
             model=settings.tts_model,
@@ -440,7 +487,10 @@ async def clinic_receptionist(ctx: agents.JobContext):
     stt_error_count = 0
     stt_timeout_count = 0
     empty_transcript_count = 0
+    llm_error_count = 0
+    llm_fallback_count = 0
     last_repeat_prompt_at = 0.0
+    last_llm_fallback_at = 0.0
 
     def prompt_repeat() -> None:
         """Ask once for a repeat without racing a new caller turn."""
@@ -454,6 +504,27 @@ async def clinic_receptionist(ctx: agents.JobContext):
         last_repeat_prompt_at = now
         with contextlib.suppress(Exception):
             session.say(STT_REPEAT_PROMPT, allow_interruptions=True)
+
+    def prompt_llm_fallback(text: str = LLM_FALLBACK_PROMPT) -> None:
+        """Speak one short fallback when the LLM fails or times out."""
+        nonlocal llm_fallback_count, last_llm_fallback_at
+        if llm_fallback_count >= LLM_FALLBACK_LIMIT:
+            return
+
+        now = time.monotonic()
+        if now - last_llm_fallback_at < LLM_FALLBACK_COOLDOWN_SECONDS:
+            return
+        if session.agent_state == "speaking" or session.user_state == "speaking":
+            return
+
+        try:
+            session.say(text, allow_interruptions=True)
+        except Exception:
+            logger.exception("Could not speak the LLM fallback")
+            return
+
+        llm_fallback_count += 1
+        last_llm_fallback_at = now
 
     async def publish_transcript(role: str, text: str, is_final: bool) -> None:
         try:
@@ -574,7 +645,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
                         {"call_id": call_id},
                         {"$push": {"tool_calls": {"$each": job[1]}}},
                     )
-                elif job[0] == "stt_failure":
+                elif job[0] in ("stt_failure", "llm_failure"):
                     await calls.update_one(
                         {"call_id": call_id},
                         {"$inc": {job[1]: 1}},
@@ -628,14 +699,25 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
     @session.on("error")
     def on_session_error(event):
-        nonlocal stt_error_count
+        nonlocal stt_error_count, llm_error_count
         error = getattr(event, "error", None)
-        if not _is_stt_error(error):
+
+        if _is_stt_error(error):
+            stt_error_count += 1
+            jobs.put_nowait(("stt_failure", "stt_error_count"))
+            logger.warning("STT error on call %s: %s", call_id, error)
             return
 
-        stt_error_count += 1
-        jobs.put_nowait(("stt_failure", "stt_error_count"))
-        logger.warning("STT error on call %s: %s", call_id, error)
+        if _is_llm_error(error):
+            llm_error_count += 1
+            jobs.put_nowait(("llm_failure", "llm_error_count"))
+            reason = (
+                "timeout" if _is_timeout_error(error) else "error"
+            )
+            logger.warning(
+                "LLM %s on call %s: %s", reason, call_id, error
+            )
+            prompt_llm_fallback()
 
     @session.on("user_transcription_timeout")
     def on_user_transcription_timeout(event):
@@ -699,13 +781,15 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
         logger.info(
             "Call %s ended (barge-ins=%s, speech turns=%s, "
-            "stt errors=%s, stt timeouts=%s, empty transcripts=%s)",
+            "stt errors=%s, stt timeouts=%s, empty transcripts=%s, "
+            "llm errors=%s)",
             call_id,
             barge_in_count,
             len(speech_handles),
             stt_error_count,
             stt_timeout_count,
             empty_transcript_count,
+            llm_error_count,
         )
 
     ctx.add_shutdown_callback(finalize)
@@ -717,8 +801,14 @@ async def clinic_receptionist(ctx: agents.JobContext):
                 call_id, today, clinic_details, doctor_roster
             ),
         )
-        logger.info("Clinic booking agent started: %s", call_id)
+    except Exception:
+        logger.exception("Clinic agent session failed")
+        ctx.shutdown("agent session failed")
+        return
 
+    logger.info("Clinic booking agent started: %s", call_id)
+
+    try:
         await session.generate_reply(
             instructions=(
                 "Greet the caller in natural Hinglish. "
@@ -727,8 +817,8 @@ async def clinic_receptionist(ctx: agents.JobContext):
             )
         )
     except Exception:
-        logger.exception("Clinic agent session failed")
-        ctx.shutdown("agent session failed")
+        logger.exception("Initial LLM greeting failed")
+        prompt_llm_fallback(LLM_GREETING_FALLBACK)
 
 
 if __name__ == "__main__":

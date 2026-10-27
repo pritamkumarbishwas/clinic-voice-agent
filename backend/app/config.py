@@ -110,6 +110,7 @@ class Settings:
     stt_transcription_timeout: float
 
     llm_model: str
+    llm_timeout_seconds: float
 
     tts_language: str
     tts_model: str
@@ -172,6 +173,7 @@ class Settings:
                 "STT_TRANSCRIPTION_TIMEOUT", 6.0
             ),
             llm_model=_text("LLM_MODEL", "sarvam-105b"),
+            llm_timeout_seconds=_float("LLM_TIMEOUT_SECONDS", 12.0),
             tts_language=_text("TTS_LANGUAGE", "hi-IN"),
             tts_model=_text("TTS_MODEL", "bulbul:v3"),
             tts_speaker=_text("TTS_SPEAKER", "shubh"),
@@ -303,6 +305,9 @@ class Settings:
             errors.append(
                 "STT_TRANSCRIPTION_TIMEOUT must be greater than 0"
             )
+
+        if self.llm_timeout_seconds <= 0:
+            errors.append("LLM_TIMEOUT_SECONDS must be greater than 0")
 
         if self.vad_min_speech_duration <= 0:
             errors.append(

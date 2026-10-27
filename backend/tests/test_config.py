@@ -53,6 +53,22 @@ def test_stt_transcription_timeout_must_be_positive(monkeypatch):
     )
 
 
+def test_llm_timeout_default(monkeypatch):
+    monkeypatch.delenv("LLM_TIMEOUT_SECONDS", raising=False)
+
+    assert Settings.from_env().llm_timeout_seconds == 12.0
+
+
+def test_llm_timeout_must_be_positive(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "LLM_TIMEOUT_SECONDS must be greater than 0" in str(error.value)
+
+
 def test_vad_silence_below_turn_detector_minimum_is_rejected(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.setenv("VAD_MIN_SILENCE_DURATION", "0.2")
