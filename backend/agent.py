@@ -900,6 +900,9 @@ async def clinic_receptionist(ctx: agents.JobContext):
         publish_jobs.put_nowait(("user", text, bool(event.is_final)))
 
     async def finalize(_reason: str) -> None:
+        with contextlib.suppress(Exception):
+            ctx.room.off("data_received", on_data_received)
+
         if llm_fallback_task is not None:
             llm_fallback_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):

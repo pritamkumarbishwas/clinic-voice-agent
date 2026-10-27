@@ -876,7 +876,7 @@ export default function LiveCall({ admin = false }) {
               )}
 
               <div className="mt-2 space-y-2">
-                {isConnected && agentSpeaking && (
+                {isConnected && (
                   <Button
                     type="button"
                     variant="outline"
