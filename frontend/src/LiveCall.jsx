@@ -130,6 +130,12 @@ const MICROPHONE_STATES = {
     icon: Loader2,
     spinning: true,
   },
+  starting: {
+    label: "Starting microphone",
+    variant: "warning",
+    icon: Loader2,
+    spinning: true,
+  },
   active: {
     label: "Listening",
     variant: "success",
@@ -144,14 +150,19 @@ const MICROPHONE_STATES = {
   },
 };
 
-function findAgent(room) {
-  const remotes = [...room.remoteParticipants.values()];
-  const agent = remotes.find(
-    (participant) => participant.kind === ParticipantKind.AGENT
-  );
+const transcriptDecoder = new TextDecoder();
 
-  if (agent) return agent;
-  return remotes.length === 1 ? remotes[0] : null;
+function findAgent(room) {
+  let fallback = null;
+  let remoteCount = 0;
+
+  for (const participant of room.remoteParticipants.values()) {
+    if (participant.kind === ParticipantKind.AGENT) return participant;
+    fallback = participant;
+    remoteCount += 1;
+  }
+
+  return remoteCount === 1 ? fallback : null;
 }
 
 function hasAgent(room) {
@@ -161,9 +172,11 @@ function hasAgent(room) {
 function isAgentParticipant(participant, room) {
   if (participant.kind === ParticipantKind.AGENT) return true;
 
-  return ![...room.remoteParticipants.values()].some(
-    (remote) => remote.identity !== participant.identity
-  );
+  for (const remote of room.remoteParticipants.values()) {
+    if (remote.identity !== participant.identity) return false;
+  }
+
+  return true;
 }
 
 const TIPS = [
@@ -212,7 +225,11 @@ export default function LiveCall({ admin = false }) {
     if (track.kind !== Track.Kind.Audio) return;
 
     const existing = audioElementsRef.current.get(track.sid);
-    if (existing) return;
+    if (existing?.track === track) return;
+    if (existing) {
+      disposeAudio(existing);
+      audioElementsRef.current.delete(track.sid);
+    }
 
     const element = track.attach();
     element.autoplay = true;
@@ -292,6 +309,7 @@ export default function LiveCall({ admin = false }) {
   async function endSession(finalPhase = "ended", sessionError = null) {
     intentionalStopRef.current = true;
     reconnectingRef.current = false;
+    startInFlightRef.current = false;
     sessionIdRef.current += 1;
     clearTimers();
 
@@ -341,7 +359,7 @@ export default function LiveCall({ admin = false }) {
       if (!sessionIsCurrent(sessionId) || topic !== "transcripts") return;
 
       try {
-        const message = JSON.parse(new TextDecoder().decode(payload));
+        const message = JSON.parse(transcriptDecoder.decode(payload));
         if (message.type !== "transcript" || !message.text) return;
 
         const normalized = {
@@ -396,7 +414,14 @@ export default function LiveCall({ admin = false }) {
     });
 
     on(RoomEvent.ParticipantConnected, () => {
-      if (!sessionIsCurrent(sessionId)) return;
+      if (
+        !sessionIsCurrent(sessionId) ||
+        intentionalStopRef.current ||
+        reconnectingRef.current
+      ) {
+        return;
+      }
+
       if (hasAgent(room)) markConnected(sessionId);
     });
 
@@ -521,6 +546,7 @@ export default function LiveCall({ admin = false }) {
       await ensureMicrophoneAccess();
       if (!sessionIsCurrent(sessionId)) return;
 
+      setMicState("starting");
       setPhase("connecting");
       stage = "token";
 
@@ -610,13 +636,14 @@ export default function LiveCall({ admin = false }) {
       console.error("Could not start the voice session", startError);
       await endSession("error", failure);
     } finally {
-      clearTokenTimeout();
-
       if (controller && tokenAbortRef.current === controller) {
+        clearTokenTimeout();
         tokenAbortRef.current = null;
       }
 
-      startInFlightRef.current = false;
+      if (sessionIdRef.current === sessionId) {
+        startInFlightRef.current = false;
+      }
     }
   }
 
@@ -640,6 +667,7 @@ export default function LiveCall({ admin = false }) {
       mountedRef.current = false;
       intentionalStopRef.current = true;
       reconnectingRef.current = false;
+      startInFlightRef.current = false;
       sessionIdRef.current += 1;
       clearTimer(tokenTimeoutRef);
       clearTimer(agentTimeoutRef);
