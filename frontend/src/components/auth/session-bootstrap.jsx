@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useDispatch } from "react-redux";
 
 import { useGetSessionQuery } from "@/store/api";
@@ -10,13 +10,18 @@ import {
 
 function SessionBootstrap() {
   const dispatch = useDispatch();
+  const bootstrappedRef = useRef(false);
   const { data, isError, isLoading } = useGetSessionQuery();
 
   useEffect(() => {
+    if (bootstrappedRef.current) return;
+
     if (isLoading) {
       dispatch(sessionLoading());
       return;
     }
+
+    bootstrappedRef.current = true;
 
     if (isError) {
       dispatch(sessionCleared());
