@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.database import call_turns, calls, client
 from app.services.latency_report import (
     LATENCY_FIELDS,
+    STT_FAILURE_FIELDS,
     build_markdown,
     build_report,
 )
@@ -54,8 +55,10 @@ async def build(args: argparse.Namespace) -> dict:
         {
             "_id": 0,
             "call_id": 1,
+            "run_id": 1,
             "booking_outcome": 1,
             "barge_in_count": 1,
+            **{field: 1 for field in STT_FAILURE_FIELDS},
         },
     ).to_list(length=100000)
 

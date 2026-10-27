@@ -177,6 +177,7 @@ export default function LatencyDashboard() {
   const hasSamples = rows.some((row) => (row.count || 0) > 0);
   const perCall = report.per_call ?? [];
   const activeRun = runs.find((run) => run.run_id === runId);
+  const sttFailures = report.stt_failure_count ?? 0;
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -291,6 +292,23 @@ export default function LatencyDashboard() {
               <AlertDescription>
                 Complete a live call and the stage timings will appear here
                 automatically.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {sttFailures > 0 && (
+            <Alert variant="warning">
+              <TriangleAlert />
+              <AlertTitle>Transcription issues recorded</AlertTitle>
+              <AlertDescription>
+                {formatNumber(report.stt_error_count ?? 0)} provider errors,{" "}
+                {formatNumber(report.stt_timeout_count ?? 0)} no-transcript
+                timeouts, and{" "}
+                {formatNumber(report.empty_transcript_count ?? 0)} empty final
+                transcripts across{" "}
+                {formatNumber(report.calls_with_stt_failures ?? 0)}{" "}
+                {pluralize(report.calls_with_stt_failures ?? 0, "call")} (
+                {formatPercent(report.stt_failure_rate)}).
               </AlertDescription>
             </Alert>
           )}

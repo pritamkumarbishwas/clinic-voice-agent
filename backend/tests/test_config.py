@@ -10,6 +10,7 @@ VAD_ENV_KEYS = (
     "VAD_DEACTIVATION_THRESHOLD",
     "MIN_ENDPOINTING_DELAY",
     "MAX_ENDPOINTING_DELAY",
+    "STT_TRANSCRIPTION_TIMEOUT",
 )
 
 
@@ -37,6 +38,19 @@ def test_vad_defaults_are_tuned_for_natural_speech(monkeypatch):
     assert config.vad_deactivation_threshold == 0.35
     assert config.min_endpointing_delay == 0.50
     assert config.max_endpointing_delay == 2.50
+    assert config.stt_transcription_timeout == 6.0
+
+
+def test_stt_transcription_timeout_must_be_positive(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("STT_TRANSCRIPTION_TIMEOUT", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "STT_TRANSCRIPTION_TIMEOUT must be greater than 0" in str(
+        error.value
+    )
 
 
 def test_vad_silence_below_turn_detector_minimum_is_rejected(monkeypatch):

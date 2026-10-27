@@ -24,6 +24,9 @@ from app.services.booking_service import (
     CLINIC_TZ,
     book_appointment as db_book_appointment,
     check_availability as db_check_availability,
+    format_doctor_roster,
+    format_stt_prompt,
+    get_doctor_directory,
 )
 from app.services.clinic_service import (
     DEFAULT_CLINIC,
@@ -42,6 +45,12 @@ AGENT_NAME = settings.livekit_agent_name
 TRANSCRIPT_TOPIC = "transcripts"
 AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
+STT_REPEAT_PROMPT = (
+    "Sorry, main aapki awaaz theek se nahi sun paya. "
+    "Kya aap dobara bata sakte hain?"
+)
+STT_REPEAT_COOLDOWN_SECONDS = 4.0
+
 
 def prewarm(proc) -> None:
     """Validate configuration and load the VAD once per worker process."""
@@ -82,6 +91,9 @@ Today's date is {today} in the clinic timezone ({timezone}).
 CLINIC INFORMATION
 {clinic_details}
 
+DOCTORS
+{doctor_roster}
+
 FAQ RULES
 - Answer questions about timings, location, phone number, and consultation fees using only the clinic information above.
 - If a detail is marked "Not configured" or is missing, say clinic staff will confirm it.
@@ -92,9 +104,17 @@ LANGUAGE
 - Match the caller's Hindi or English preference.
 - Keep responses short and ask one question at a time.
 
+CALLER SPEECH
+- If the caller's speech is unclear, incomplete, or garbled, ask them to repeat once. Do not guess.
+- If a name, phone number, date, or time is unclear, confirm that item before continuing.
+- Never treat a greeting, background noise, or a filler word as a booking request.
+- When repeating a phone number, say each digit separately.
+- When repeating a date, include the weekday and date.
+
 AVAILABILITY
 - Use check_availability for real availability.
 - Convert relative dates ("tomorrow", "parso") to YYYY-MM-DD before calling the tool.
+- Use only the doctors listed above. If the doctor is unclear, ask which listed doctor they mean.
 - Never invent doctors, times, or available slots.
 - Only offer slot IDs returned by the availability tool.
 - Say times in the caller's local time, not UTC.
@@ -102,6 +122,7 @@ AVAILABILITY
 BOOKING SAFETY
 - Collect the patient's name and phone number.
 - Repeat the doctor, date, time, name and phone number for confirmation.
+- Read the phone number back digit by digit and the date with its weekday.
 - Ask whether the caller wants you to book the appointment.
 - Do not call book_appointment until the caller explicitly says yes.
 - Pass confirmed=true only after explicit caller confirmation.
@@ -133,6 +154,10 @@ def _milliseconds(value) -> float | None:
     if isinstance(value, (int, float)) and value >= 0:
         return round(float(value) * 1000, 2)
     return None
+
+
+def _is_stt_error(error) -> bool:
+    return getattr(error, "type", None) == "stt_error"
 
 
 def _transcript_entry(role: str, text: str, message_id: str | None = None) -> dict:
@@ -172,6 +197,7 @@ def _config_snapshot() -> dict:
             "stream_type": settings.stt_stream_type,
             "mode": settings.stt_mode,
             "endpointing": settings.stt_endpointing,
+            "transcription_timeout": settings.stt_transcription_timeout,
         },
         "llm": {"model": settings.llm_model},
         "tts": {
@@ -205,12 +231,14 @@ class ClinicReceptionist(Agent):
         call_id: str,
         today: str,
         clinic_details: str,
+        doctor_roster: str,
     ):
         super().__init__(
             instructions=SYSTEM_PROMPT.format(
                 today=today,
                 timezone=CLINIC_TZ.key,
                 clinic_details=clinic_details,
+                doctor_roster=doctor_roster,
             )
         )
         self.call_id = call_id
@@ -319,6 +347,14 @@ async def clinic_receptionist(ctx: agents.JobContext):
     clinic_details = format_clinic_for_prompt(clinic_profile)
 
     try:
+        doctor_docs = await get_doctor_directory()
+    except Exception:
+        logger.exception("Could not load doctor roster")
+        doctor_docs = []
+    doctor_roster = format_doctor_roster(doctor_docs)
+    stt_prompt = format_stt_prompt(doctor_docs)
+
+    try:
         await calls.insert_one(
             {
                 "call_id": call_id,
@@ -330,6 +366,9 @@ async def clinic_receptionist(ctx: agents.JobContext):
                 "tool_calls": [],
                 "barge_in_count": 0,
                 "speech_count": 0,
+                "stt_error_count": 0,
+                "stt_timeout_count": 0,
+                "empty_transcript_count": 0,
                 "booking_outcome": "not_booked",
                 "appointment_id": None,
                 "analysis_status": "pending",
@@ -345,11 +384,13 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
+        transcription_timeout=settings.stt_transcription_timeout,
         stt=sarvam.STTRealtime(
             language=settings.stt_language,
             stream_type=settings.stt_stream_type,
             mode=settings.stt_mode,
             endpointing=settings.stt_endpointing,
+            prompt=stt_prompt,
             vad_sot_threshold=settings.vad_activation_threshold,
             vad_min_speech_ms=round(
                 settings.vad_min_speech_duration * 1000
@@ -396,6 +437,23 @@ async def clinic_receptionist(ctx: agents.JobContext):
     speech_handles: list = []
     last_user_item_id: str | None = None
     persisted_message_ids: set[str] = set()
+    stt_error_count = 0
+    stt_timeout_count = 0
+    empty_transcript_count = 0
+    last_repeat_prompt_at = 0.0
+
+    def prompt_repeat() -> None:
+        """Ask once for a repeat without racing a new caller turn."""
+        nonlocal last_repeat_prompt_at
+        now = time.monotonic()
+        if now - last_repeat_prompt_at < STT_REPEAT_COOLDOWN_SECONDS:
+            return
+        if session.agent_state == "speaking" or session.user_state == "speaking":
+            return
+
+        last_repeat_prompt_at = now
+        with contextlib.suppress(Exception):
+            session.say(STT_REPEAT_PROMPT, allow_interruptions=True)
 
     async def publish_transcript(role: str, text: str, is_final: bool) -> None:
         try:
@@ -516,6 +574,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
                         {"call_id": call_id},
                         {"$push": {"tool_calls": {"$each": job[1]}}},
                     )
+                elif job[0] == "stt_failure":
+                    await calls.update_one(
+                        {"call_id": call_id},
+                        {"$inc": {job[1]: 1}},
+                    )
             except Exception:
                 logger.exception("Failed to persist %s for %s", job[0], call_id)
             finally:
@@ -563,13 +626,41 @@ async def clinic_receptionist(ctx: agents.JobContext):
     def on_speech_created(event):
         speech_handles.append(event.speech_handle)
 
+    @session.on("error")
+    def on_session_error(event):
+        nonlocal stt_error_count
+        error = getattr(event, "error", None)
+        if not _is_stt_error(error):
+            return
+
+        stt_error_count += 1
+        jobs.put_nowait(("stt_failure", "stt_error_count"))
+        logger.warning("STT error on call %s: %s", call_id, error)
+
+    @session.on("user_transcription_timeout")
+    def on_user_transcription_timeout(event):
+        nonlocal stt_timeout_count
+        stt_timeout_count += 1
+        jobs.put_nowait(("stt_failure", "stt_timeout_count"))
+        logger.info(
+            "STT timeout on call %s after %.2fs of speech",
+            call_id,
+            getattr(event, "speech_duration", 0.0),
+        )
+        prompt_repeat()
+
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(event):
+        nonlocal empty_transcript_count, last_repeat_prompt_at
         text = (event.transcript or "").strip()
         if not text:
+            if event.is_final:
+                empty_transcript_count += 1
+                jobs.put_nowait(("stt_failure", "empty_transcript_count"))
             return
 
         if event.is_final:
+            last_repeat_prompt_at = 0.0
             jobs.put_nowait(("transcript", text))
 
         publish_jobs.put_nowait(("user", text, bool(event.is_final)))
@@ -607,10 +698,14 @@ async def clinic_receptionist(ctx: agents.JobContext):
             logger.exception("Could not save call end state")
 
         logger.info(
-            "Call %s ended (barge-ins=%s, speech turns=%s)",
+            "Call %s ended (barge-ins=%s, speech turns=%s, "
+            "stt errors=%s, stt timeouts=%s, empty transcripts=%s)",
             call_id,
             barge_in_count,
             len(speech_handles),
+            stt_error_count,
+            stt_timeout_count,
+            empty_transcript_count,
         )
 
     ctx.add_shutdown_callback(finalize)
@@ -618,7 +713,9 @@ async def clinic_receptionist(ctx: agents.JobContext):
     try:
         await session.start(
             room=ctx.room,
-            agent=ClinicReceptionist(call_id, today, clinic_details),
+            agent=ClinicReceptionist(
+                call_id, today, clinic_details, doctor_roster
+            ),
         )
         logger.info("Clinic booking agent started: %s", call_id)
 

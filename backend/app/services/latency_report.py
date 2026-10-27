@@ -9,6 +9,12 @@ LATENCY_FIELDS = {
     "playback_latency_ms": "Audio frame -> playback started",
 }
 
+STT_FAILURE_FIELDS = (
+    "stt_error_count",
+    "stt_timeout_count",
+    "empty_transcript_count",
+)
+
 
 def percentile(values: list[float], p: float) -> float | None:
     if not values:
@@ -45,12 +51,34 @@ def _stage_summary(values: list[float], label: str) -> dict:
     }
 
 
-def _per_call(turns: list[dict]) -> list[dict]:
+def _count(call: dict, field: str) -> int:
+    value = call.get(field)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(0, int(value))
+    return 0
+
+
+def _call_stt_counts(call: dict) -> dict:
+    return {field: _count(call, field) for field in STT_FAILURE_FIELDS}
+
+
+def _per_call(
+    turns: list[dict],
+    call_docs: list[dict] | None = None,
+) -> list[dict]:
     grouped: dict[str, list[dict]] = {}
     for row in turns:
         call_id = row.get("call_id")
         if call_id:
             grouped.setdefault(call_id, []).append(row)
+
+    call_by_id = {
+        call.get("call_id"): call
+        for call in (call_docs or [])
+        if call.get("call_id")
+    }
+    for call_id in call_by_id:
+        grouped.setdefault(call_id, [])
 
     calls = []
     for call_id, rows in grouped.items():
@@ -58,14 +86,16 @@ def _per_call(turns: list[dict]) -> list[dict]:
             field: percentile(_numeric_values(rows, field), 50)
             for field in LATENCY_FIELDS
         }
+        call_doc = call_by_id.get(call_id, {})
         calls.append(
             {
                 "call_id": call_id,
                 "run_id": next(
                     (row.get("run_id") for row in rows if row.get("run_id")),
-                    None,
+                    call_doc.get("run_id"),
                 ),
                 "turns": len(rows),
+                **_call_stt_counts(call_doc),
                 **stage,
             }
         )
@@ -95,6 +125,15 @@ def build_report(
     barge_in_count = sum(
         int(call.get("barge_in_count") or 0) for call in call_docs
     )
+    stt_counts = {
+        field: sum(_count(call, field) for call in call_docs)
+        for field in STT_FAILURE_FIELDS
+    }
+    calls_with_stt_failures = sum(
+        1
+        for call in call_docs
+        if any(_count(call, field) for field in STT_FAILURE_FIELDS)
+    )
 
     return {
         "metrics": metrics,
@@ -109,7 +148,17 @@ def build_report(
             else None
         ),
         "barge_in_count": barge_in_count,
-        "per_call": _per_call(turns),
+        "stt_error_count": stt_counts["stt_error_count"],
+        "stt_timeout_count": stt_counts["stt_timeout_count"],
+        "empty_transcript_count": stt_counts["empty_transcript_count"],
+        "stt_failure_count": sum(stt_counts.values()),
+        "calls_with_stt_failures": calls_with_stt_failures,
+        "stt_failure_rate": (
+            round(calls_with_stt_failures / len(call_docs), 4)
+            if call_docs
+            else None
+        ),
+        "per_call": _per_call(turns, call_docs),
     }
 
 
@@ -120,6 +169,10 @@ def _fmt(value: float | None) -> str:
 def build_markdown(report: dict, title: str) -> str:
     rate = report.get("booking_success_rate")
     rate_text = "n/a" if rate is None else f"{round(rate * 100)}%"
+    stt_rate = report.get("stt_failure_rate")
+    stt_rate_text = (
+        "n/a" if stt_rate is None else f"{round(stt_rate * 100)}%"
+    )
 
     lines = [
         f"# {title}",
@@ -128,6 +181,14 @@ def build_markdown(report: dict, title: str) -> str:
         f"- Calls measured: {report['calls_measured']}",
         f"- Booking success rate: {rate_text}",
         f"- Barge-ins recorded: {report.get('barge_in_count', 0)}",
+        f"- STT errors: {report.get('stt_error_count', 0)}",
+        f"- STT timeouts: {report.get('stt_timeout_count', 0)}",
+        f"- Empty final transcripts: {report.get('empty_transcript_count', 0)}",
+        (
+            f"- Calls with STT failures: "
+            f"{report.get('calls_with_stt_failures', 0)} "
+            f"({stt_rate_text})"
+        ),
         "",
         "| Stage | Samples | p50 (ms) | p95 (ms) | p99 (ms) | Min | Max |",
         "|---|---:|---:|---:|---:|---:|---:|",
@@ -148,16 +209,23 @@ def build_markdown(report: dict, title: str) -> str:
                 "",
                 "## Calls",
                 "",
-                "| Call | Turns | E2E p50 (ms) | LLM p50 (ms) | TTS p50 (ms) |",
-                "|---|---:|---:|---:|---:|",
+                (
+                    "| Call | Turns | E2E p50 (ms) | LLM p50 (ms) | "
+                    "TTS p50 (ms) | STT failures |"
+                ),
+                "|---|---:|---:|---:|---:|---:|",
             ]
         )
         for call in per_call[:50]:
+            stt_failures = sum(
+                call.get(field, 0) for field in STT_FAILURE_FIELDS
+            )
             lines.append(
                 f"| {call['call_id']} | {call['turns']} | "
                 f"{_fmt(call.get('end_to_audio_ms'))} | "
                 f"{_fmt(call.get('llm_latency_ms'))} | "
-                f"{_fmt(call.get('tts_latency_ms'))} |"
+                f"{_fmt(call.get('tts_latency_ms'))} | "
+                f"{stt_failures} |"
             )
 
     return "\n".join(lines) + "\n"

@@ -18,14 +18,21 @@ MAX_SLOTS_PER_DATE = 15
 _PHONE_PATTERN = re.compile(r"^\+?\d{10,15}$")
 _DOCTOR_PREFIX_PATTERN = re.compile(r"^(?:dr\.?|doctor)\s+", re.IGNORECASE)
 _PHONE_NOISE_PATTERN = re.compile(r"[\s\-().]")
+_DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 
 
 def _clean_text(value: str) -> str:
     return " ".join((value or "").split())
 
 
+def _normalize_digits(value: str) -> str:
+    return (value or "").translate(_DEVANAGARI_DIGITS)
+
+
 def _normalize_phone(value: str) -> str | None:
-    cleaned = _PHONE_NOISE_PATTERN.sub("", _clean_text(value))
+    cleaned = _PHONE_NOISE_PATTERN.sub(
+        "", _normalize_digits(_clean_text(value))
+    )
     return cleaned if _PHONE_PATTERN.fullmatch(cleaned) else None
 
 
@@ -33,6 +40,46 @@ def _normalize_doctor_name(value: str) -> str:
     cleaned = _clean_text(value)
     stripped = _DOCTOR_PREFIX_PATTERN.sub("", cleaned).strip()
     return stripped or cleaned
+
+
+def format_doctor_roster(doctor_docs: list[dict]) -> str:
+    lines = []
+    for doctor in doctor_docs:
+        name = _clean_text(doctor.get("name") or "")
+        if not name:
+            continue
+        specialty = _clean_text(doctor.get("specialty") or "")
+        lines.append(f"- {name}" + (f" ({specialty})" if specialty else ""))
+    return "\n".join(lines) if lines else "No doctors are configured."
+
+
+def format_stt_prompt(doctor_docs: list[dict]) -> str:
+    base = (
+        "Hindi or Hinglish clinic appointment call. "
+        "Recognize doctor names, patient names, weekdays, dates, times, "
+        "and phone numbers accurately."
+    )
+    names = [
+        _clean_text(doctor.get("name") or "")
+        for doctor in doctor_docs
+    ]
+    names = [name for name in names if name][:20]
+    return f"{base} Doctors: {', '.join(names)}." if names else base
+
+
+async def get_doctor_directory() -> list[dict]:
+    return (
+        await doctors.find(
+            {"active": True},
+            {"_id": 0, "name": 1, "specialty": 1},
+        )
+        .sort("name", 1)
+        .to_list(length=100)
+    )
+
+
+async def get_doctor_roster() -> str:
+    return format_doctor_roster(await get_doctor_directory())
 
 
 async def _find_doctor(doctor_name: str) -> dict | None:
@@ -66,7 +113,9 @@ def _local_to_utc(value: datetime) -> datetime:
 async def check_availability(date: str, doctor_name: str) -> dict:
     """Return real, future, available slots for a doctor on a local clinic date."""
     try:
-        requested_date = datetime.strptime(_clean_text(date), "%Y-%m-%d").date()
+        requested_date = datetime.strptime(
+            _normalize_digits(_clean_text(date)), "%Y-%m-%d"
+        ).date()
     except (TypeError, ValueError):
         return {"ok": False, "message": "Use date format YYYY-MM-DD."}
 

@@ -3,6 +3,12 @@ from types import SimpleNamespace
 import agent
 
 
+def test_is_stt_error_only_matches_stt_errors():
+    assert agent._is_stt_error(SimpleNamespace(type="stt_error"))
+    assert not agent._is_stt_error(SimpleNamespace(type="llm_error"))
+    assert not agent._is_stt_error(None)
+
+
 def test_prewarm_loads_configured_silero_options(monkeypatch):
     captured = {}
 

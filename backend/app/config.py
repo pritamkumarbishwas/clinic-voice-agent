@@ -107,6 +107,7 @@ class Settings:
     stt_stream_type: str
     stt_mode: str
     stt_endpointing: str
+    stt_transcription_timeout: float
 
     llm_model: str
 
@@ -167,6 +168,9 @@ class Settings:
             stt_stream_type=_text("STT_STREAM_TYPE", "balanced"),
             stt_mode=_text("STT_MODE", "codemix"),
             stt_endpointing=_text("STT_ENDPOINTING", "vad"),
+            stt_transcription_timeout=_float(
+                "STT_TRANSCRIPTION_TIMEOUT", 6.0
+            ),
             llm_model=_text("LLM_MODEL", "sarvam-105b"),
             tts_language=_text("TTS_LANGUAGE", "hi-IN"),
             tts_model=_text("TTS_MODEL", "bulbul:v3"),
@@ -291,8 +295,13 @@ class Settings:
 
         if self.stt_endpointing != "vad":
             errors.append(
-                "STT_ENDPOINTING must be 'vad'; Sarvam realtime does not "
-                "advertise manual_flush for manual endpointing"
+                "STT_ENDPOINTING must be 'vad'; the agent relies on "
+                "Sarvam's server-side turn detection"
+            )
+
+        if self.stt_transcription_timeout <= 0:
+            errors.append(
+                "STT_TRANSCRIPTION_TIMEOUT must be greater than 0"
             )
 
         if self.vad_min_speech_duration <= 0:

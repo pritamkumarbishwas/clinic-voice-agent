@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Loader2,
   MessageSquareText,
+  MicOff,
   RefreshCw,
   Sparkles,
   Tag,
@@ -175,6 +176,10 @@ function CallDetailSheet({
   const turns = detail?.turn_metrics ?? [];
   const transcript = call?.transcript ?? [];
   const toolCalls = call?.tool_calls ?? [];
+  const sttFailures =
+    (call?.stt_error_count ?? 0) +
+    (call?.stt_timeout_count ?? 0) +
+    (call?.empty_transcript_count ?? 0);
   const analysisStatus = call?.analysis_status || "pending";
   const summary =
     call?.summary ||
@@ -347,6 +352,11 @@ function CallDetailSheet({
                       icon={MessageSquareText}
                       label="Speech turns"
                       value={call.speech_count ?? 0}
+                    />
+                    <DetailStat
+                      icon={MicOff}
+                      label="STT failures"
+                      value={sttFailures}
                     />
                     <DetailStat
                       icon={CalendarCheck2}
@@ -582,6 +592,20 @@ function CallDetailSheet({
                     />
                   ) : (
                     <div className="space-y-2.5">
+                      {(call.stt_error_count ||
+                        call.stt_timeout_count ||
+                        call.empty_transcript_count) && (
+                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed">
+                          <p className="font-semibold text-amber-700 dark:text-amber-300">
+                            Transcription issues
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {call.stt_error_count ?? 0} provider errors ·{" "}
+                            {call.stt_timeout_count ?? 0} timeouts ·{" "}
+                            {call.empty_transcript_count ?? 0} empty finals
+                          </p>
+                        </div>
+                      )}
                       {turns.map((turn, index) => (
                         <TurnCard
                           key={turn.turn_id || index}

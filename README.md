@@ -116,8 +116,10 @@ See `backend/.env.example` for the full list. The important groups are:
 - Auth: `JWT_SECRET` (32+ chars), `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`,
   `AUTH_COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
 - Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`), `CORS_ORIGINS`
-- STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`
-  (`STT_ENDPOINTING` must stay `vad`; Sarvam realtime has no manual flush)
+- STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`,
+  `STT_TRANSCRIPTION_TIMEOUT` (`STT_ENDPOINTING` must stay `vad`; the agent
+  uses Sarvam's server VAD and sends the active doctor roster as a terminology
+  hint. Keyterm lists are not exposed by the current Sarvam plugin.)
 - LLM: `LLM_MODEL` (default `sarvam-105b`)
 - TTS: `TTS_LANGUAGE`, `TTS_MODEL`, `TTS_SPEAKER`, `TTS_PACE`,
   `TTS_MIN_BUFFER_SIZE`, `TTS_MAX_CHUNK_LENGTH`
@@ -143,7 +145,8 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 - `users`: admin accounts with Argon2 password hashes and roles
 - `clinic`: single clinic profile/FAQ used by the agent prompt
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
-  fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`
+  fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`,
+  `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`
 - `call_turns`: one document per transcript turn with stage latencies
   (`endpoint_latency_ms`, `stt_latency_ms`, `llm_latency_ms`,
   `tts_latency_ms`, `end_to_audio_ms`, `playback_latency_ms`)
@@ -215,8 +218,14 @@ Mark the run finished:
 ```
 
 The report contains p50/p95/p99, min, max, sample counts per stage, booking
-success rate, barge-in count, and the slowest calls. A fresh database has no
-benchmark numbers; they must be collected with real calls.
+success rate, barge-in count, and the slowest calls. It also reports STT
+provider errors, no-transcript timeouts, empty final transcripts, and the share
+of calls affected by an STT failure. A fresh database has no benchmark numbers;
+they must be collected with real calls.
+
+Word error rate is not calculated automatically because calls are not recorded.
+Accuracy is reviewed in the benchmark script using the named-phrase cases, while
+runtime failures and transcription latency are measured automatically.
 
 ## Deployment
 

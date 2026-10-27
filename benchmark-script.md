@@ -39,6 +39,24 @@ scenario `PASS` only when every check in the last column is true.
 | 19 | Interrupt then continue | Interrupt once, then complete the request for Dr. Singh tomorrow | Recovers cleanly without losing the goal | One correct booking flow |
 | 20 | End without booking | "Okay, main soch ke call karta hoon." | Confirms no booking was made; closes politely | No appointment created |
 
+## STT accuracy spot-check
+
+Run these five extra conversations after the 20 benchmark calls. Open the call
+transcript and compare what Sarvam transcribed with what was actually said.
+Mark each case `PASS` only when every listed detail is correct.
+
+| # | Say | Details that must survive transcription | Pass check |
+|---|---|---|---|
+| S1 | "Mujhe Dr. Sharma se 12 November ko 4 baje ka appointment chahiye." | Dr. Sharma, 12 November, 4 baje | Doctor, date and time match; agent repeats them before booking |
+| S2 | "Mera naam Priya Sharma hai, mera number +91 98765 43210 hai." | Priya Sharma, +91 98765 43210 | Name and all ten digits match; agent reads the number back digit by digit |
+| S3 | "Dr. Verma ke saath parso subah 10:30 baje milna hai." | Dr. Verma, relative date, 10:30 AM | Correct doctor/date conversion and local time |
+| S4 | "Nahi, phone number galat hai. 43211 karo." | Corrected final digit | Agent uses the corrected number and does not revert |
+| S5 | "Mujhe... woh... kal ka... matlab..." | No reliable booking details | Agent asks the caller to repeat instead of guessing |
+
+Record the raw final transcript for each case in the run notes. Runtime STT
+errors, timeouts, and empty transcripts appear automatically in the latency
+report.
+
 After the 20 calls:
 
 ```powershell
