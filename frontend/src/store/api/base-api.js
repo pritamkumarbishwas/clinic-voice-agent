@@ -1,11 +1,12 @@
-import { sessionCleared } from "@/store/slices/auth-slice";
 import {
   createApi,
   fetchBaseQuery,
 } from "@reduxjs/toolkit/query/react";
 
+import { sessionCleared } from "../slices/auth-slice";
+
 export const API_URL = (
-  import.meta.env.VITE_API_URL || ""
+  import.meta.env?.VITE_API_URL || ""
 ).replace(/\/+$/, "");
 
 const SESSION_ENDPOINTS = ["/api/auth/login", "/api/auth/me"];

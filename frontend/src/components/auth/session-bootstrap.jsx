@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 import { useGetSessionQuery } from "@/store/api";
 import {
+  selectAuthStatus,
   sessionCleared,
   sessionLoaded,
   sessionLoading,
@@ -10,11 +11,17 @@ import {
 
 function SessionBootstrap() {
   const dispatch = useDispatch();
+  const status = useSelector(selectAuthStatus);
   const bootstrappedRef = useRef(false);
   const { data, isError, isLoading } = useGetSessionQuery();
 
   useEffect(() => {
     if (bootstrappedRef.current) return;
+
+    if (status !== "loading") {
+      bootstrappedRef.current = true;
+      return;
+    }
 
     if (isLoading) {
       dispatch(sessionLoading());
@@ -29,7 +36,7 @@ function SessionBootstrap() {
     }
 
     dispatch(sessionLoaded(data?.user ?? null));
-  }, [data, dispatch, isError, isLoading]);
+  }, [data, dispatch, isError, isLoading, status]);
 
   return null;
 }

@@ -11,7 +11,7 @@ const store = configureStore({
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(clinicApi.middleware),
-  devTools: import.meta.env.DEV,
+  devTools: import.meta.env?.DEV ?? false,
 });
 
 setupListeners(store.dispatch);
