@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,79 +17,57 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { apiGet, apiPost } from "@/lib/api";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { formatNumber, pluralize } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  useGetCallQuery,
+  useListCallsQuery,
+  useListRunsQuery,
+  useRequeueAnalysisMutation,
+} from "@/store/api";
 
 export default function CallLog() {
   const navigate = useNavigate();
-  const [calls, setCalls] = useState([]);
-  const [runs, setRuns] = useState([]);
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
-
   const [runFilter, setRunFilter] = useState("all");
   const [outcomeFilter, setOutcomeFilter] = useState("all");
   const [sentimentFilter, setSentimentFilter] = useState("all");
-
   const [detailOpen, setDetailOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState("");
   const [activeCallId, setActiveCallId] = useState("");
-  const [analysisRetrying, setAnalysisRetrying] = useState(false);
 
-  const detailAbortRef = useRef(null);
+  const callsQuery = useListCallsQuery({
+    page,
+    pageSize: 20,
+    runId: runFilter === "all" ? undefined : runFilter,
+    outcome: outcomeFilter === "all" ? undefined : outcomeFilter,
+    sentiment: sentimentFilter === "all" ? undefined : sentimentFilter,
+  });
+  const runsQuery = useListRunsQuery();
+  const detailQuery = useGetCallQuery(activeCallId, {
+    skip: !activeCallId,
+  });
+  const [requeueAnalysis, { isLoading: analysisRetrying }] =
+    useRequeueAnalysisMutation();
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const calls = callsQuery.currentData?.items ?? [];
+  const runs = runsQuery.data?.items ?? [];
+  const pages = Math.max(1, callsQuery.currentData?.total_pages ?? 1);
+  const total = callsQuery.currentData?.total ?? 0;
+  const loading =
+    callsQuery.isLoading ||
+    (callsQuery.isFetching && !callsQuery.currentData);
+  const error = callsQuery.isError
+    ? getApiErrorMessage(callsQuery.error, "Could not load calls")
+    : "";
 
-    apiGet("/api/analytics/runs", { signal: controller.signal })
-      .then((data) => setRuns(data.items ?? []))
-      .catch(() => {
-        // Run filtering is optional; the call list still works without it.
-      });
-
-    return () => controller.abort();
-  }, [reloadKey]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      page: String(page),
-      page_size: "20",
-    });
-
-    if (runFilter !== "all") params.set("run_id", runFilter);
-    if (outcomeFilter !== "all") params.set("outcome", outcomeFilter);
-    if (sentimentFilter !== "all") params.set("sentiment", sentimentFilter);
-
-    apiGet(`/api/calls?${params.toString()}`, {
-      signal: controller.signal,
-    })
-      .then((data) => {
-        setCalls(data.items ?? []);
-        setPages(Math.max(1, data.total_pages ?? 1));
-        setTotal(data.total ?? 0);
-        setError("");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [page, runFilter, outcomeFilter, sentimentFilter, reloadKey]);
-
-  useEffect(() => {
-    return () => detailAbortRef.current?.abort();
-  }, []);
+  const detail = detailQuery.currentData ?? null;
+  const detailLoading =
+    Boolean(activeCallId) &&
+    (detailQuery.isLoading || (detailQuery.isFetching && !detail));
+  const detailError = detailQuery.isError
+    ? getApiErrorMessage(detailQuery.error, "Could not load call")
+    : "";
 
   const hasFilters =
     runFilter !== "all" ||
@@ -97,30 +75,26 @@ export default function CallLog() {
     sentimentFilter !== "all";
 
   function refresh() {
-    setLoading(true);
-    setReloadKey((value) => value + 1);
+    void callsQuery.refetch();
+    void runsQuery.refetch();
   }
 
   function changeRun(value) {
-    setLoading(true);
     setPage(1);
     setRunFilter(value);
   }
 
   function changeOutcome(value) {
-    setLoading(true);
     setPage(1);
     setOutcomeFilter(value);
   }
 
   function changeSentiment(value) {
-    setLoading(true);
     setPage(1);
     setSentimentFilter(value);
   }
 
   function resetFilters() {
-    setLoading(true);
     setPage(1);
     setRunFilter("all");
     setOutcomeFilter("all");
@@ -129,86 +103,36 @@ export default function CallLog() {
 
   function goToPage(nextPage) {
     if (nextPage < 1 || nextPage > pages || nextPage === page) return;
-    setLoading(true);
     setPage(nextPage);
-  }
-
-  async function loadCall(callId) {
-    detailAbortRef.current?.abort();
-
-    const controller = new AbortController();
-    detailAbortRef.current = controller;
-
-    setActiveCallId(callId);
-    setSelected(null);
-    setDetailError("");
-    setDetailLoading(true);
-
-    try {
-      const data = await apiGet(`/api/calls/${encodeURIComponent(callId)}`, {
-        signal: controller.signal,
-      });
-
-      if (!controller.signal.aborted) setSelected(data);
-    } catch (err) {
-      if (err.name !== "AbortError") setDetailError(err.message);
-    } finally {
-      if (detailAbortRef.current === controller) {
-        detailAbortRef.current = null;
-        setDetailLoading(false);
-      }
-    }
   }
 
   function openCall(callId) {
     setDetailOpen(true);
-    loadCall(callId);
+    setActiveCallId(callId);
   }
 
   function handleSheetChange(open) {
     setDetailOpen(open);
 
     if (!open) {
-      detailAbortRef.current?.abort();
-      detailAbortRef.current = null;
-      setSelected(null);
-      setDetailError("");
-      setDetailLoading(false);
       setActiveCallId("");
     }
   }
 
   function retryDetail() {
-    if (activeCallId) loadCall(activeCallId);
+    if (activeCallId) void detailQuery.refetch();
   }
 
   async function retryAnalysis(callId) {
-    setAnalysisRetrying(true);
-
     try {
-      await apiPost(`/api/calls/${encodeURIComponent(callId)}/analyze`);
-      setSelected((previous) =>
-        previous
-          ? {
-              ...previous,
-              call: {
-                ...previous.call,
-                analysis_status: "pending",
-                analysis_error: null,
-              },
-            }
-          : previous
-      );
+      await requeueAnalysis(callId).unwrap();
       toast.success("Analysis requeued", {
         description: "The worker will process this call shortly.",
       });
-      setReloadKey((value) => value + 1);
     } catch (err) {
       toast.error("Could not requeue analysis", {
-        description: err.message,
+        description: getApiErrorMessage(err),
       });
-    } finally {
-      setAnalysisRetrying(false);
     }
   }
 
@@ -228,9 +152,11 @@ export default function CallLog() {
               type="button"
               variant="outline"
               onClick={refresh}
-              disabled={loading}
+              disabled={callsQuery.isFetching}
             >
-              <RefreshCw className={cn(loading && "animate-spin")} />
+              <RefreshCw
+                className={cn(callsQuery.isFetching && "animate-spin")}
+              />
               Refresh
             </Button>
           </>
@@ -336,11 +262,11 @@ export default function CallLog() {
       <CallDetailSheet
         open={detailOpen}
         onOpenChange={handleSheetChange}
-        detail={selected}
+        detail={detail}
         loading={detailLoading}
         error={detailError}
         onRetry={retryDetail}
-        retrying={detailLoading}
+        retrying={detailQuery.isFetching}
         retryingAnalysis={analysisRetrying}
         onRetryAnalysis={retryAnalysis}
       />

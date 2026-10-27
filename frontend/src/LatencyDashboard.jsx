@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Activity,
   CalendarCheck2,
@@ -41,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiGet } from "@/lib/api";
+import { getApiErrorMessage } from "@/lib/api-error";
 import {
   formatMs,
   formatNumber,
@@ -49,6 +49,10 @@ import {
   pluralize,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  useGetLatencyQuery,
+  useListRunsQuery,
+} from "@/store/api";
 
 const STAGES = [
   { key: "endpoint_latency_ms", label: "Endpoint decision" },
@@ -112,54 +116,28 @@ function LatencySkeleton() {
 }
 
 export default function LatencyDashboard() {
-  const [report, setReport] = useState({});
-  const [runs, setRuns] = useState([]);
   const [runId, setRunId] = useState("all");
-  const [loading, setLoading] = useState(true);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [error, setError] = useState("");
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    apiGet("/api/analytics/runs", { signal: controller.signal })
-      .then((data) => setRuns(data.items ?? []))
-      .catch(() => {
-        // The report still works when the run list is unavailable.
-      });
-
-    return () => controller.abort();
-  }, [reloadKey]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const path =
-      runId === "all"
-        ? "/api/analytics/latency"
-        : `/api/analytics/latency?run_id=${encodeURIComponent(runId)}`;
-
-    apiGet(path, { signal: controller.signal })
-      .then((data) => {
-        setReport(data);
-        setError("");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [reloadKey, runId]);
+  const runsQuery = useListRunsQuery();
+  const latencyQuery = useGetLatencyQuery({ runId });
+  const runs = runsQuery.data?.items ?? [];
+  const report = latencyQuery.currentData ?? {};
+  const loading =
+    latencyQuery.isLoading ||
+    (latencyQuery.isFetching && !latencyQuery.currentData);
+  const error = latencyQuery.isError
+    ? getApiErrorMessage(
+        latencyQuery.error,
+        "Could not load latency metrics"
+      )
+    : "";
 
   function refresh() {
-    setLoading(true);
-    setReloadKey((value) => value + 1);
+    void latencyQuery.refetch();
+    void runsQuery.refetch();
   }
 
   function changeRun(value) {
-    setLoading(true);
     setRunId(value);
   }
 
@@ -213,10 +191,12 @@ export default function LatencyDashboard() {
               type="button"
               variant="outline"
               onClick={refresh}
-              disabled={loading}
+              disabled={latencyQuery.isFetching}
               className="w-full sm:w-auto"
             >
-              <RefreshCw className={cn(loading && "animate-spin")} />
+              <RefreshCw
+                className={cn(latencyQuery.isFetching && "animate-spin")}
+              />
               Refresh
             </Button>
           </>

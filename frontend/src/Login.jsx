@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 export default function Login() {
   const { user, loading, login } = useAuth();
@@ -45,7 +46,7 @@ export default function Login() {
       await login(email.trim(), password);
       navigate(destination, { replace: true });
     } catch (err) {
-      setError(err.message || "Could not sign in");
+      setError(getApiErrorMessage(err, "Could not sign in"));
     } finally {
       setSubmitting(false);
     }

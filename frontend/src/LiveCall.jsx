@@ -39,7 +39,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { apiGet } from "@/lib/api";
 import {
   CONTROL_TOPIC,
   createInterruptPayload,
@@ -49,6 +48,7 @@ import {
 import { mergeTranscript } from "@/lib/transcripts";
 import { describeVoiceError, voiceError } from "@/lib/voice-errors";
 import { cn } from "@/lib/utils";
+import { useRequestTokenMutation } from "@/store/api";
 
 const AUDIO_CAPTURE_OPTIONS = {
   echoCancellation: true,
@@ -189,11 +189,12 @@ const TIPS = [
 ];
 
 export default function LiveCall({ admin = false }) {
+  const [requestToken] = useRequestTokenMutation();
   const roomRef = useRef(null);
   const roomCleanupRef = useRef(null);
   const audioElementsRef = useRef(new Map());
   const startInFlightRef = useRef(false);
-  const tokenAbortRef = useRef(null);
+  const tokenRequestRef = useRef(null);
   const tokenTimeoutRef = useRef(null);
   const agentTimeoutRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
@@ -323,8 +324,8 @@ export default function LiveCall({ admin = false }) {
     sessionIdRef.current += 1;
     clearTimers();
 
-    tokenAbortRef.current?.abort();
-    tokenAbortRef.current = null;
+    tokenRequestRef.current?.abort();
+    tokenRequestRef.current = null;
 
     const room = roomRef.current;
     const cleanupRoom = roomCleanupRef.current;
@@ -555,7 +556,7 @@ export default function LiveCall({ admin = false }) {
     setStartedAt(null);
     transcriptPinnedRef.current = true;
 
-    let controller = null;
+    let tokenRequest = null;
     let tokenTimedOut = false;
     let stage = "permission";
     let room;
@@ -575,20 +576,17 @@ export default function LiveCall({ admin = false }) {
       stage = "token";
 
       const trimmedRun = runLabel.trim();
-      const tokenPath = trimmedRun
-        ? `/api/generate-token?run_id=${encodeURIComponent(trimmedRun)}`
-        : "/api/generate-token";
 
-      controller = new AbortController();
-      tokenAbortRef.current = controller;
+      tokenRequest = requestToken({
+        runId: trimmedRun || undefined,
+      });
+      tokenRequestRef.current = tokenRequest;
       tokenTimeoutRef.current = window.setTimeout(() => {
         tokenTimedOut = true;
-        controller.abort();
+        tokenRequest.abort();
       }, TOKEN_TIMEOUT_MS);
 
-      const { serverUrl, token } = await apiGet(tokenPath, {
-        signal: controller.signal,
-      });
+      const { serverUrl, token } = await tokenRequest.unwrap();
       clearTokenTimeout();
       if (!sessionIsCurrent(sessionId)) return;
 
@@ -660,9 +658,9 @@ export default function LiveCall({ admin = false }) {
       console.error("Could not start the voice session", startError);
       await endSession("error", failure);
     } finally {
-      if (controller && tokenAbortRef.current === controller) {
+      if (tokenRequest && tokenRequestRef.current === tokenRequest) {
         clearTokenTimeout();
-        tokenAbortRef.current = null;
+        tokenRequestRef.current = null;
       }
 
       if (sessionIdRef.current === sessionId) {
@@ -696,8 +694,8 @@ export default function LiveCall({ admin = false }) {
       clearTimer(tokenTimeoutRef);
       clearTimer(agentTimeoutRef);
       clearTimer(reconnectTimeoutRef);
-      tokenAbortRef.current?.abort();
-      tokenAbortRef.current = null;
+      tokenRequestRef.current?.abort();
+      tokenRequestRef.current = null;
 
       const room = roomRef.current;
       const cleanupRoom = roomCleanupRef.current;

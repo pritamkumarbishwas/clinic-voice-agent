@@ -1,42 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
-
-import { apiGet } from "@/lib/api";
+import { useGetHealthQuery } from "@/store/api";
 
 function useApiHealth() {
-  const [status, setStatus] = useState("checking");
-
-  const fetchHealth = useCallback(
-    () =>
-      apiGet("/api/health")
-        .then((data) => (data?.status === "healthy" ? "healthy" : "degraded"))
-        .catch(() => "offline"),
-    []
+  const { data, isError, isLoading, refetch } = useGetHealthQuery(
+    undefined,
+    { pollingInterval: 60_000 }
   );
 
-  const check = useCallback(async () => {
-    const nextStatus = await fetchHealth();
-    setStatus(nextStatus);
-  }, [fetchHealth]);
+  const status = isError
+    ? "offline"
+    : isLoading
+      ? "checking"
+      : data?.status === "healthy"
+        ? "healthy"
+        : "degraded";
 
-  useEffect(() => {
-    let active = true;
-
-    function sync() {
-      fetchHealth().then((nextStatus) => {
-        if (active) setStatus(nextStatus);
-      });
-    }
-
-    sync();
-    const interval = window.setInterval(sync, 60_000);
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [fetchHealth]);
-
-  return { status, check };
+  return { status, check: refetch };
 }
 
 export { useApiHealth };

@@ -1,5 +1,5 @@
 import { Loader2, Save, Stethoscope, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -15,51 +15,33 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiGet, apiPut } from "@/lib/api";
+import { getApiErrorMessage } from "@/lib/api-error";
+import {
+  useGetClinicQuery,
+  useUpdateClinicMutation,
+} from "@/store/api";
 
-const EMPTY_PROFILE = {
-  name: "",
-  address: "",
-  phone: "",
-  hours: { open: "10:00", close: "17:00", days: "Mon-Sat" },
-  consultation_fee: "",
-  emergency_note: "",
-};
+function toProfile(data) {
+  return {
+    name: data?.name ?? "",
+    address: data?.address ?? "",
+    phone: data?.phone ?? "",
+    hours: {
+      open: data?.hours?.open ?? "10:00",
+      close: data?.hours?.close ?? "17:00",
+      days: data?.hours?.days ?? "Mon-Sat",
+    },
+    consultation_fee: data?.consultation_fee ?? "",
+    emergency_note: data?.emergency_note ?? "",
+  };
+}
 
-export default function ClinicSettings() {
-  const [profile, setProfile] = useState(EMPTY_PROFILE);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    apiGet("/api/clinic", { signal: controller.signal })
-      .then((data) => {
-        setProfile({
-          name: data?.name ?? "",
-          address: data?.address ?? "",
-          phone: data?.phone ?? "",
-          hours: {
-            open: data?.hours?.open ?? "10:00",
-            close: data?.hours?.close ?? "17:00",
-            days: data?.hours?.days ?? "Mon-Sat",
-          },
-          consultation_fee: data?.consultation_fee ?? "",
-          emergency_note: data?.emergency_note ?? "",
-        });
-        setError("");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, []);
+function ClinicProfileForm({ initialProfile }) {
+  const [profile, setProfile] = useState(initialProfile);
+  const [savedProfile, setSavedProfile] = useState(initialProfile);
+  const [saveError, setSaveError] = useState("");
+  const [updateClinic, { isLoading: saving }] =
+    useUpdateClinicMutation();
 
   function setField(field, value) {
     setProfile((previous) => ({ ...previous, [field]: value }));
@@ -72,56 +54,36 @@ export default function ClinicSettings() {
     }));
   }
 
+  function resetProfile() {
+    setSaveError("");
+    setProfile(savedProfile);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
-    setSaving(true);
-    setError("");
+    setSaveError("");
 
     try {
-      const saved = await apiPut("/api/clinic", profile);
-      setProfile({
-        name: saved.name ?? "",
-        address: saved.address ?? "",
-        phone: saved.phone ?? "",
-        hours: {
-          open: saved?.hours?.open ?? "10:00",
-          close: saved?.hours?.close ?? "17:00",
-          days: saved?.hours?.days ?? "Mon-Sat",
-        },
-        consultation_fee: saved.consultation_fee ?? "",
-        emergency_note: saved.emergency_note ?? "",
-      });
+      const saved = await updateClinic(profile).unwrap();
+      const savedValues = toProfile(saved);
+
+      setProfile(savedValues);
+      setSavedProfile(savedValues);
       toast.success("Clinic profile saved");
     } catch (err) {
-      setError(err.message || "Could not save the clinic profile");
-    } finally {
-      setSaving(false);
+      setSaveError(
+        getApiErrorMessage(err, "Could not save the clinic profile")
+      );
     }
   }
 
-  if (loading) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-96 rounded-2xl" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 animate-fade-up">
-      <PageHeader
-        icon={Stethoscope}
-        eyebrow="Clinic profile"
-        title="Clinic details and FAQ"
-        description="The AI receptionist uses these details to answer questions about timings, location, phone, and fees. If a field is empty, it will say staff will confirm."
-      />
-
-      {error && (
+    <>
+      {saveError && (
         <Alert variant="destructive">
           <TriangleAlert />
           <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
 
@@ -236,7 +198,7 @@ export default function ClinicSettings() {
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => window.location.reload()}
+                onClick={resetProfile}
                 disabled={saving}
               >
                 Reset
@@ -249,6 +211,43 @@ export default function ClinicSettings() {
           </CardContent>
         </Card>
       </form>
+    </>
+  );
+}
+
+export default function ClinicSettings() {
+  const { currentData, isError, isLoading, error } = useGetClinicQuery();
+  const loadError = isError
+    ? getApiErrorMessage(error, "Could not load the clinic profile")
+    : "";
+
+  if (isLoading) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-96 rounded-2xl" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-fade-up">
+      <PageHeader
+        icon={Stethoscope}
+        eyebrow="Clinic profile"
+        title="Clinic details and FAQ"
+        description="The AI receptionist uses these details to answer questions about timings, location, phone, and fees. If a field is empty, it will say staff will confirm."
+      />
+
+      {loadError && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>Something went wrong</AlertTitle>
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+      )}
+
+      <ClinicProfileForm initialProfile={toProfile(currentData)} />
     </div>
   );
 }

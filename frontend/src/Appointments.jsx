@@ -7,7 +7,7 @@ import {
   Stethoscope,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -38,8 +38,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiGet } from "@/lib/api";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { formatDateTime, formatNumber, titleCase } from "@/lib/format";
+import {
+  useListAppointmentsQuery,
+  useListDoctorsQuery,
+} from "@/store/api";
 
 const STATUS_OPTIONS = ["all", "confirmed", "completed", "cancelled"];
 
@@ -71,69 +75,38 @@ function AppointmentsSkeleton() {
 }
 
 export default function Appointments() {
-  const [appointments, setAppointments] = useState([]);
-  const [doctors, setDoctors] = useState([]);
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("all");
   const [doctor, setDoctor] = useState("all");
   const [date, setDate] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const appointmentsQuery = useListAppointmentsQuery({
+    page,
+    pageSize: 20,
+    status: status === "all" ? undefined : status,
+    doctor: doctor === "all" ? undefined : doctor,
+    date: date || undefined,
+  });
+  const { currentData, isError, isFetching, isLoading, refetch } =
+    appointmentsQuery;
+  const doctorsQuery = useListDoctorsQuery();
 
-    apiGet("/api/doctors", { signal: controller.signal })
-      .then((data) => setDoctors(data.items ?? []))
-      .catch(() => {
-        // Doctor filtering is optional; the table still works without it.
-      });
-
-    return () => controller.abort();
-  }, [reloadKey]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      page: String(page),
-      page_size: "20",
-    });
-
-    if (status !== "all") params.set("status", status);
-    if (doctor !== "all") params.set("doctor", doctor);
-    if (date) params.set("date", date);
-
-    apiGet(`/api/appointments?${params.toString()}`, {
-      signal: controller.signal,
-    })
-      .then((data) => {
-        setAppointments(data.items ?? []);
-        setPages(Math.max(1, data.total_pages ?? 1));
-        setTotal(data.total ?? 0);
-        setError("");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [page, status, doctor, date, reloadKey]);
-
+  const appointments = currentData?.items ?? [];
+  const doctors = doctorsQuery.data?.items ?? [];
+  const pages = Math.max(1, currentData?.total_pages ?? 1);
+  const total = currentData?.total ?? 0;
+  const loading = isLoading || (isFetching && !currentData);
+  const error = isError
+    ? getApiErrorMessage(appointmentsQuery.error, "Could not load appointments")
+    : "";
   const hasFilters = status !== "all" || doctor !== "all" || date !== "";
 
   function refresh() {
-    setLoading(true);
-    setReloadKey((value) => value + 1);
+    void refetch();
+    void doctorsQuery.refetch();
   }
 
   function resetFilters() {
-    setLoading(true);
     setPage(1);
     setStatus("all");
     setDoctor("all");
@@ -141,7 +114,6 @@ export default function Appointments() {
   }
 
   function changeFilter(setter, value) {
-    setLoading(true);
     setPage(1);
     setter(value);
   }
@@ -159,9 +131,9 @@ export default function Appointments() {
             variant="outline"
             size="sm"
             onClick={refresh}
-            disabled={loading}
+            disabled={isFetching}
           >
-            <RefreshCw className={loading ? "animate-spin" : undefined} />
+            <RefreshCw className={isFetching ? "animate-spin" : undefined} />
             Refresh
           </Button>
         }
@@ -376,7 +348,6 @@ export default function Appointments() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setLoading(true);
                   setPage((value) => Math.max(1, value - 1));
                 }}
                 disabled={page <= 1}
@@ -390,7 +361,6 @@ export default function Appointments() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setLoading(true);
                   setPage((value) => Math.min(pages, value + 1));
                 }}
                 disabled={page >= pages}

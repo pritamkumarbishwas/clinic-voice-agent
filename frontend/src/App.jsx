@@ -6,8 +6,8 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import { AuthProvider } from "@/components/auth/auth-provider";
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { SessionBootstrap } from "@/components/auth/session-bootstrap";
 import { AdminLayout } from "@/components/layout/admin-layout";
 import { PublicLayout } from "@/components/layout/public-layout";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -35,30 +35,29 @@ export default function App() {
   return (
     <ThemeProvider>
       <TooltipProvider>
-        <AuthProvider>
-          <ScrollToTop />
-          <Routes>
-            <Route element={<PublicLayout />}>
-              <Route index element={<LiveCall />} />
+        <SessionBootstrap />
+        <ScrollToTop />
+        <Routes>
+          <Route element={<PublicLayout />}>
+            <Route index element={<LiveCall />} />
+          </Route>
+
+          <Route path="/admin/login" element={<Login />} />
+
+          <Route element={<ProtectedRoute />}>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<Navigate to="live" replace />} />
+              <Route path="live" element={<LiveCall admin />} />
+              <Route path="appointments" element={<Appointments />} />
+              <Route path="calls" element={<CallLog />} />
+              <Route path="clinic" element={<ClinicSettings />} />
+              <Route path="latency" element={<LatencyDashboard />} />
             </Route>
+          </Route>
 
-            <Route path="/admin/login" element={<Login />} />
-
-            <Route element={<ProtectedRoute />}>
-              <Route path="/admin" element={<AdminLayout />}>
-                <Route index element={<Navigate to="live" replace />} />
-                <Route path="live" element={<LiveCall admin />} />
-                <Route path="appointments" element={<Appointments />} />
-                <Route path="calls" element={<CallLog />} />
-                <Route path="clinic" element={<ClinicSettings />} />
-                <Route path="latency" element={<LatencyDashboard />} />
-              </Route>
-            </Route>
-
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-          <Toaster />
-        </AuthProvider>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        <Toaster />
       </TooltipProvider>
     </ThemeProvider>
   );
