@@ -46,6 +46,7 @@ export default function CallLog() {
   const runsQuery = useListRunsQuery();
   const detailQuery = useGetCallQuery(activeCallId, {
     skip: !activeCallId,
+    refetchOnMountOrArgChange: true,
   });
   const [requeueAnalysis, { isLoading: analysisRetrying }] =
     useRequeueAnalysisMutation();
