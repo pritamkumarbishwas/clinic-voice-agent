@@ -4,7 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from app.services.appointment_service import build_query, day_bounds_utc
-from app.services.clinic_service import ClinicProfile, format_clinic_for_prompt
+from app.services.clinic_service import (
+    DEFAULT_CLINIC,
+    ClinicProfile,
+    format_clinic_for_prompt,
+)
 
 
 def test_clinic_prompt_marks_missing_details():
@@ -13,6 +17,14 @@ def test_clinic_prompt_marks_missing_details():
     assert "Clinic name: Test Clinic" in prompt
     assert "Address: Not configured" in prompt
     assert "Opening hours: 10:00 to 17:00 (Mon-Sat)" in prompt
+
+
+def test_default_clinic_does_not_expose_placeholder_hours():
+    prompt = format_clinic_for_prompt(DEFAULT_CLINIC)
+
+    assert "Clinic name: Not configured" in prompt
+    assert "Opening hours: Not configured" in prompt
+    assert "10:00 to 17:00" not in prompt
 
 
 def test_clinic_profile_rejects_invalid_time():

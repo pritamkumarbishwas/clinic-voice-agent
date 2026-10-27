@@ -8,6 +8,7 @@ from app.database import clinic
 _TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _PHONE_PATTERN = re.compile(r"^[+0-9()\-\s]{3,40}$")
 CLINIC_DOCUMENT_ID = "main"
+PLACEHOLDER_CLINIC_NAME = "Clinic"
 
 
 class ClinicHours(BaseModel):
@@ -46,7 +47,7 @@ class ClinicProfile(BaseModel):
 
 
 DEFAULT_CLINIC = ClinicProfile(
-    name="Clinic",
+    name=PLACEHOLDER_CLINIC_NAME,
     address="",
     phone="",
     hours=ClinicHours(),
@@ -85,19 +86,28 @@ def format_clinic_for_prompt(profile: dict | ClinicProfile) -> str:
     else:
         value = ClinicProfile.model_validate(profile)
 
+    unconfigured = (
+        value.name.strip().casefold() == PLACEHOLDER_CLINIC_NAME.casefold()
+    )
+
     def present(text: str) -> str:
         cleaned = (text or "").strip()
-        return cleaned if cleaned else "Not configured"
+        return cleaned if cleaned and not unconfigured else "Not configured"
+
+    hours = (
+        "Not configured"
+        if unconfigured
+        else (
+            f"{value.hours.open} to {value.hours.close} "
+            f"({present(value.hours.days)})"
+        )
+    )
 
     lines = [
         f"Clinic name: {present(value.name)}",
         f"Address: {present(value.address)}",
         f"Phone: {present(value.phone)}",
-        (
-            "Opening hours: "
-            f"{value.hours.open} to {value.hours.close} "
-            f"({present(value.hours.days)})"
-        ),
+        f"Opening hours: {hours}",
         f"Consultation fee: {present(value.consultation_fee)}",
     ]
     if value.emergency_note.strip():

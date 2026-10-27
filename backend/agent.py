@@ -25,6 +25,12 @@ from livekit.plugins import sarvam, silero
 
 from app.config import sanitize_run_id, settings
 from app.database import call_turns, calls, initialize_database
+from app.prompts.receptionist import (
+    PROMPT_VERSION,
+    SUPPORTED_LANGUAGES,
+    build_greeting_instructions,
+    build_system_prompt,
+)
 from app.services.booking_service import (
     CLINIC_TZ,
     book_appointment as db_book_appointment,
@@ -92,83 +98,6 @@ async def _ensure_database() -> None:
         if not _db_ready:
             await initialize_database()
             _db_ready = True
-
-
-SYSTEM_PROMPT = """
-You are a polite AI clinic receptionist.
-You must identify yourself as an AI receptionist when greeting the caller.
-
-Today's date is {today} in the clinic timezone ({timezone}).
-
-CLINIC INFORMATION
-{clinic_details}
-
-DOCTORS
-{doctor_roster}
-
-FAQ RULES
-- Answer questions about timings, location, phone number, and consultation fees using only the clinic information above.
-- If a detail is marked "Not configured" or is missing, say clinic staff will confirm it.
-- Never invent an address, phone number, fee, or opening time.
-
-LANGUAGE
-- Speak natural Indian Hinglish by default.
-- Match the caller's Hindi or English preference.
-- Speak at most two short sentences per turn. Use three only when confirming a booking.
-- Never use markdown, bullet lists, or long explanations in spoken replies.
-- Ask one question at a time.
-- Use the conversation so far. Do not ask again for details the caller already provided.
-- When a booking is requested, collect doctor, date, time, patient name, and phone one item at a time.
-- If details are missing, ask only for the next missing item in one clear question.
-
-EXAMPLE
-Caller: "Mujhe kal appointment chahiye."
-Reply: "Bilkul, kal ke liye appointment check karte hain. Aap kis doctor ko dikhana chahte hain?"
-
-CALLER SPEECH
-- If the caller's speech is unclear, incomplete, or garbled, ask them to repeat once. Do not guess.
-- If a name, phone number, date, or time is unclear, confirm that item before continuing.
-- Never treat a greeting, background noise, or a filler word as a booking request.
-- When repeating a phone number, say each digit separately.
-- When repeating a date, include the weekday and date.
-
-AVAILABILITY
-- Use check_availability for real availability.
-- Convert relative dates ("tomorrow", "parso") to YYYY-MM-DD before calling the tool.
-- Use only the doctors listed above. If the doctor is unclear, ask which listed doctor they mean.
-- Never invent doctors, times, or available slots.
-- Only offer slot IDs returned by the availability tool.
-- Say times in the caller's local time, not UTC.
-
-BOOKING SAFETY
-- Collect the patient's name and phone number.
-- Repeat the doctor, date, time, name and phone number for confirmation.
-- Read the phone number back digit by digit and the date with its weekday.
-- Ask whether the caller wants you to book the appointment.
-- Do not call book_appointment until the caller explicitly says yes.
-- Pass confirmed=true only after explicit caller confirmation.
-- Pass the exact slot_id returned by check_availability.
-- If the slot is taken, apologise and check availability again.
-- Only announce a booking as successful when the booking tool returns ok=true.
-- Never claim an appointment is booked after a timeout or failed tool call.
-
-MEDICAL SAFETY
-- Never diagnose or prescribe medication.
-- Refer medical questions to a qualified clinician.
-
-INTERRUPTIONS
-- If the caller interrupts you, stop the current response and listen.
-- Respond to the caller's latest request instead of continuing the old reply.
-- Do not treat background noise or silence as confirmation.
-
-ERRORS
-- If a tool fails, say:
-  "Sorry, appointment system mein abhi problem aa rahi hai.
-   Main booking confirm nahi kar pa raha hoon."
-- Never invent a booking reference.
-
-Keep every spoken response concise.
-"""
 
 
 def _milliseconds(value) -> float | None:
@@ -322,6 +251,10 @@ def _config_snapshot() -> dict:
             "interruption_min_duration": settings.interruption_min_duration,
             "preemptive_tts": settings.preemptive_tts,
         },
+        "prompt": {
+            "version": PROMPT_VERSION,
+            "languages": list(SUPPORTED_LANGUAGES),
+        },
     }
 
 
@@ -346,15 +279,17 @@ class ClinicReceptionist(Agent):
         self,
         call_id: str,
         today: str,
+        clinic_name: str,
         clinic_details: str,
         doctor_roster: str,
     ):
         super().__init__(
-            instructions=SYSTEM_PROMPT.format(
-                today=today,
-                timezone=CLINIC_TZ.key,
+            instructions=build_system_prompt(
+                clinic_name=clinic_name,
                 clinic_details=clinic_details,
                 doctor_roster=doctor_roster,
+                today=today,
+                timezone=CLINIC_TZ.key,
             )
         )
         self.call_id = call_id
@@ -460,6 +395,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     except Exception:
         logger.exception("Could not load clinic profile")
         clinic_profile = DEFAULT_CLINIC.model_dump()
+    clinic_name = str(clinic_profile.get("name") or "")
     clinic_details = format_clinic_for_prompt(clinic_profile)
 
     try:
@@ -968,7 +904,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
         await session.start(
             room=ctx.room,
             agent=ClinicReceptionist(
-                call_id, today, clinic_details, doctor_roster
+                call_id,
+                today,
+                clinic_name,
+                clinic_details,
+                doctor_roster,
             ),
         )
     except Exception:
@@ -980,11 +920,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
 
     try:
         await session.generate_reply(
-            instructions=(
-                "Greet the caller in natural Hinglish. "
-                "Introduce yourself as an AI clinic receptionist "
-                "and ask how you can help."
-            )
+            instructions=build_greeting_instructions(clinic_name)
         )
     except Exception:
         logger.exception("Initial LLM greeting failed")

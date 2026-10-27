@@ -96,6 +96,13 @@ def test_is_timeout_error_detects_wrapped_and_direct_timeouts():
     assert not agent._is_timeout_error(RuntimeError("bad request"))
 
 
+def test_config_snapshot_records_prompt_metadata():
+    snapshot = agent._config_snapshot()
+
+    assert snapshot["prompt"]["version"] == agent.PROMPT_VERSION
+    assert snapshot["prompt"]["languages"] == list(agent.SUPPORTED_LANGUAGES)
+
+
 def test_session_connect_options_disable_llm_retries():
     options = agent._session_connect_options()
 

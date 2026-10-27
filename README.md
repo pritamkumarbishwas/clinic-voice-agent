@@ -1,15 +1,15 @@
 # Clinic Voice Agent
 
 Real-time Hindi/Hinglish phone receptionist for a small clinic. A caller talks
-to a LiveKit agent, the agent answers clinic FAQs, checks doctor availability,
-books or reschedules appointments, and every call is stored for analysis and
-latency benchmarking.
+to a LiveKit agent, the agent answers verified clinic questions, checks doctor
+availability, books appointments, and every call is stored for analysis and
+latency benchmarking. Cancellation and rescheduling are handled by clinic staff.
 
 The project has two surfaces:
 
 - **Public patient call page** at `/` - no login, starts a voice session.
 - **Protected admin dashboard** under `/admin/*` - JWT cookie login, call log,
-  appointments, clinic profile/FAQ editor, and latency dashboards.
+  appointments, clinic profile editor, and latency dashboards.
 
 ## Architecture
 
@@ -36,6 +36,17 @@ short Hinglish fallback instead of leaving the caller in silence. TTS streams
 over Sarvam's WebSocket API and falls back to Sarvam's HTTP API if streaming
 fails. TTS errors are logged and counted; repeated failures do not immediately
 end the call.
+
+### Receptionist prompt
+
+The receptionist rules live in `backend/app/prompts/receptionist.py`. The
+prompt is built at call time from the MongoDB clinic profile and active doctor
+roster, so edits in `/admin/clinic` apply to the next call. It is Hindi/Hinglish
+only, answers verified clinic questions, checks availability, and books
+appointments. Cancellation, rescheduling, insurance, billing, reports, records,
+complaints, and human-support requests are referred to the configured clinic
+phone; the assistant does not promise callbacks or transfers. The prompt version
+is stored in `calls.agent_config.prompt.version` for benchmark comparison.
 
 Flow after a call ends:
 
@@ -161,7 +172,7 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 ## Data model
 
 - `users`: admin accounts with Argon2 password hashes and roles
-- `clinic`: single clinic profile/FAQ used by the agent prompt
+- `clinic`: single clinic profile used by the agent prompt
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
   fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`,
   `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`,
@@ -203,7 +214,7 @@ Admin (JWT cookie):
 - `/admin/live` - admin call page with benchmark run label
 - `/admin/appointments` - patient bookings
 - `/admin/calls` - call log and transcripts
-- `/admin/clinic` - clinic profile and FAQ editor
+- `/admin/clinic` - clinic profile editor
 - `/admin/latency` - benchmark latency dashboard
 
 ## Benchmark (20 calls)
@@ -251,15 +262,10 @@ runtime failures and transcription latency are measured automatically.
 
 ## Deployment
 
-See [`docs/deployment.md`](docs/deployment.md) for Vercel + Render + MongoDB
-Atlas + LiveKit Cloud. The repository includes:
-
-- `backend/Dockerfile` and `backend/Dockerfile.agent`
-- `frontend/Dockerfile` and `frontend/nginx.conf`
-- `docker-compose.yml` for a local production-like stack
-- `render.yaml` for Render Blueprint deployment
-- `frontend/vercel.json` for the same-origin `/api` rewrite
-- `.github/workflows/ci.yml`
+The repository does not include CI/CD, Docker, or provider-specific hosting
+configuration. See [`docs/deployment.md`](docs/deployment.md) for provider-neutral
+steps covering the API, agent worker, static frontend, MongoDB Atlas, LiveKit
+Cloud, and Sarvam.
 
 ## Tests and checks
 

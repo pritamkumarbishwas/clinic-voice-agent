@@ -9,7 +9,7 @@ React 19 + Vite + Tailwind frontend for the clinic voice agent.
 - `/admin/live` - admin call page with benchmark run label
 - `/admin/appointments` - patient bookings
 - `/admin/calls` - call log and transcripts
-- `/admin/clinic` - clinic profile and FAQ editor
+- `/admin/clinic` - clinic profile editor
 - `/admin/latency` - latency dashboard
 
 Admin routes use an HttpOnly JWT cookie. The API client sends
@@ -29,8 +29,8 @@ The Vite dev server proxies `/api` to `http://localhost:8000`. Set
 VITE_API_URL=http://localhost:8000
 ```
 
-Leave it empty for Vercel, where `vercel.json` rewrites `/api/*` to the Render
-API so cookies stay same-origin.
+Leave it empty when a reverse proxy serves `/api/*` from the same origin, so
+cookies stay same-origin. Set it only for a direct or cross-origin API.
 
 ## State and API
 
