@@ -26,6 +26,15 @@ def test_is_timeout_error_detects_wrapped_and_direct_timeouts():
     assert not agent._is_timeout_error(RuntimeError("bad request"))
 
 
+def test_session_connect_options_disable_llm_retries():
+    options = agent._session_connect_options()
+
+    assert options.llm_conn_options.max_retry == agent.LLM_MAX_RETRIES
+    assert options.llm_conn_options.timeout == (
+        agent.settings.llm_timeout_seconds
+    )
+
+
 def test_prewarm_loads_configured_silero_options(monkeypatch):
     captured = {}
 

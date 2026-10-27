@@ -13,10 +13,12 @@ from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
+    APIConnectOptions,
     RunContext,
     function_tool,
 )
 from livekit.agents.llm import ChatMessage
+from livekit.agents.voice.agent_session import SessionConnectOptions
 from livekit.plugins import sarvam, silero
 
 from app.config import sanitize_run_id, settings
@@ -51,17 +53,11 @@ STT_REPEAT_PROMPT = (
     "Kya aap dobara bata sakte hain?"
 )
 STT_REPEAT_COOLDOWN_SECONDS = 4.0
+LLM_MAX_RETRIES = 0
 LLM_FALLBACK_PROMPT = (
-    "Sorry, abhi system mein thodi problem aa rahi hai. "
-    "Kripya thodi der baad dobara call karein."
+    "Sorry, main clinic ki AI receptionist hoon aur abhi system mein "
+    "thodi problem aa rahi hai. Kripya thodi der baad dobara call karein."
 )
-LLM_GREETING_FALLBACK = (
-    "Namaste, main clinic ki AI receptionist hoon. "
-    "Abhi system mein thodi problem hai. "
-    "Kripya thodi der baad dobara call karein."
-)
-LLM_FALLBACK_COOLDOWN_SECONDS = 8.0
-LLM_FALLBACK_LIMIT = 2
 
 
 def prewarm(proc) -> None:
@@ -242,6 +238,7 @@ def _config_snapshot() -> dict:
         "llm": {
             "model": settings.llm_model,
             "timeout_seconds": settings.llm_timeout_seconds,
+            "max_retries": LLM_MAX_RETRIES,
         },
         "tts": {
             "language": settings.tts_language,
@@ -266,6 +263,16 @@ def _config_snapshot() -> dict:
             "preemptive_tts": settings.preemptive_tts,
         },
     }
+
+
+def _session_connect_options() -> SessionConnectOptions:
+    return SessionConnectOptions(
+        llm_conn_options=APIConnectOptions(
+            max_retry=LLM_MAX_RETRIES,
+            retry_interval=0.0,
+            timeout=settings.llm_timeout_seconds,
+        )
+    )
 
 
 class ClinicReceptionist(Agent):
@@ -429,6 +436,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
         transcription_timeout=settings.stt_transcription_timeout,
+        conn_options=_session_connect_options(),
         stt=sarvam.STTRealtime(
             language=settings.stt_language,
             stream_type=settings.stt_stream_type,
@@ -488,9 +496,8 @@ async def clinic_receptionist(ctx: agents.JobContext):
     stt_timeout_count = 0
     empty_transcript_count = 0
     llm_error_count = 0
-    llm_fallback_count = 0
+    llm_fallback_task: asyncio.Task | None = None
     last_repeat_prompt_at = 0.0
-    last_llm_fallback_at = 0.0
 
     def prompt_repeat() -> None:
         """Ask once for a repeat without racing a new caller turn."""
@@ -505,26 +512,50 @@ async def clinic_receptionist(ctx: agents.JobContext):
         with contextlib.suppress(Exception):
             session.say(STT_REPEAT_PROMPT, allow_interruptions=True)
 
-    def prompt_llm_fallback(text: str = LLM_FALLBACK_PROMPT) -> None:
-        """Speak one short fallback when the LLM fails or times out."""
-        nonlocal llm_fallback_count, last_llm_fallback_at
-        if llm_fallback_count >= LLM_FALLBACK_LIMIT:
-            return
+    async def speak_llm_fallback_when_ready() -> None:
+        while session.user_state == "speaking":
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(0.5)
 
-        now = time.monotonic()
-        if now - last_llm_fallback_at < LLM_FALLBACK_COOLDOWN_SECONDS:
-            return
-        if session.agent_state == "speaking" or session.user_state == "speaking":
+        if (
+            session.user_state == "speaking"
+            or session.agent_state in ("thinking", "speaking")
+            or session.current_speech is not None
+        ):
             return
 
         try:
-            session.say(text, allow_interruptions=True)
+            session.say(LLM_FALLBACK_PROMPT, allow_interruptions=True)
         except Exception:
             logger.exception("Could not speak the LLM fallback")
+
+    def prompt_llm_fallback() -> None:
+        """Speak a short fallback when the LLM fails or times out."""
+        nonlocal llm_fallback_task
+        if session.agent_state == "speaking":
             return
 
-        llm_fallback_count += 1
-        last_llm_fallback_at = now
+        if session.user_state == "speaking":
+            if (
+                llm_fallback_task is not None
+                and not llm_fallback_task.done()
+            ):
+                return
+            try:
+                llm_fallback_task = asyncio.create_task(
+                    speak_llm_fallback_when_ready()
+                )
+            except RuntimeError:
+                logger.exception("Could not schedule the LLM fallback")
+            return
+
+        if llm_fallback_task is not None and not llm_fallback_task.done():
+            llm_fallback_task.cancel()
+
+        try:
+            session.say(LLM_FALLBACK_PROMPT, allow_interruptions=True)
+        except Exception:
+            logger.exception("Could not speak the LLM fallback")
 
     async def publish_transcript(role: str, text: str, is_final: bool) -> None:
         try:
@@ -714,10 +745,16 @@ async def clinic_receptionist(ctx: agents.JobContext):
             reason = (
                 "timeout" if _is_timeout_error(error) else "error"
             )
+            recoverable = bool(getattr(error, "recoverable", False))
             logger.warning(
-                "LLM %s on call %s: %s", reason, call_id, error
+                "LLM %s on call %s (recoverable=%s): %s",
+                reason,
+                call_id,
+                recoverable,
+                error,
             )
-            prompt_llm_fallback()
+            if not recoverable:
+                prompt_llm_fallback()
 
     @session.on("user_transcription_timeout")
     def on_user_transcription_timeout(event):
@@ -748,6 +785,11 @@ async def clinic_receptionist(ctx: agents.JobContext):
         publish_jobs.put_nowait(("user", text, bool(event.is_final)))
 
     async def finalize(_reason: str) -> None:
+        if llm_fallback_task is not None:
+            llm_fallback_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await llm_fallback_task
+
         with contextlib.suppress(Exception):
             await asyncio.wait_for(jobs.join(), timeout=5)
             await asyncio.wait_for(publish_jobs.join(), timeout=5)
@@ -818,7 +860,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
         )
     except Exception:
         logger.exception("Initial LLM greeting failed")
-        prompt_llm_fallback(LLM_GREETING_FALLBACK)
+        prompt_llm_fallback()
 
 
 if __name__ == "__main__":
