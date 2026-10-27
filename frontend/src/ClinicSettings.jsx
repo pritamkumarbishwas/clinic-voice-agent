@@ -1,4 +1,10 @@
-import { Loader2, Save, Stethoscope, TriangleAlert } from "lucide-react";
+import {
+  Loader2,
+  RefreshCw,
+  Save,
+  Stethoscope,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -216,7 +222,14 @@ function ClinicProfileForm({ initialProfile }) {
 }
 
 export default function ClinicSettings() {
-  const { currentData, isError, isLoading, error } = useGetClinicQuery();
+  const {
+    currentData,
+    isError,
+    isFetching,
+    isLoading,
+    error,
+    refetch,
+  } = useGetClinicQuery();
   const loadError = isError
     ? getApiErrorMessage(error, "Could not load the clinic profile")
     : "";
@@ -235,19 +248,33 @@ export default function ClinicSettings() {
       <PageHeader
         icon={Stethoscope}
         eyebrow="Clinic profile"
-        title="Clinic details and FAQ"
+        title="Clinic details"
         description="The AI receptionist uses these details to answer questions about timings, location, phone, and fees. If a field is empty, it will say staff will confirm."
       />
 
-      {loadError && (
+      {isError || !currentData ? (
         <Alert variant="destructive">
           <TriangleAlert />
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{loadError}</AlertDescription>
+          <AlertTitle>Clinic profile unavailable</AlertTitle>
+          <AlertDescription>
+            {loadError || "Could not load the clinic profile."} The form is
+            disabled until the saved profile loads.
+          </AlertDescription>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="col-start-2 justify-self-start"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw className={isFetching ? "animate-spin" : ""} />
+            {isFetching ? "Retrying..." : "Try again"}
+          </Button>
         </Alert>
+      ) : (
+        <ClinicProfileForm initialProfile={toProfile(currentData)} />
       )}
-
-      <ClinicProfileForm initialProfile={toProfile(currentData)} />
     </div>
   );
 }

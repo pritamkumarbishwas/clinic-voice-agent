@@ -36,7 +36,7 @@ export const NAV_ITEMS = [
     to: "/admin/clinic",
     label: "Clinic profile",
     shortLabel: "Clinic",
-    description: "Details and FAQ answers",
+    description: "Contact, hours, and fees",
     icon: Stethoscope,
   },
   {
