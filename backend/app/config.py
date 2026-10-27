@@ -116,6 +116,12 @@ class Settings:
     tts_min_buffer_size: int
     tts_max_chunk_length: int
 
+    vad_min_speech_duration: float
+    vad_min_silence_duration: float
+    vad_prefix_padding_duration: float
+    vad_activation_threshold: float
+    vad_deactivation_threshold: float
+
     min_endpointing_delay: float
     max_endpointing_delay: float
     interruption_min_duration: float
@@ -167,8 +173,23 @@ class Settings:
             tts_pace=_float("TTS_PACE", 1.0),
             tts_min_buffer_size=_int("TTS_MIN_BUFFER_SIZE", 50),
             tts_max_chunk_length=_int("TTS_MAX_CHUNK_LENGTH", 150),
-            min_endpointing_delay=_float("MIN_ENDPOINTING_DELAY", 0.5),
-            max_endpointing_delay=_float("MAX_ENDPOINTING_DELAY", 3.0),
+            vad_min_speech_duration=_float(
+                "VAD_MIN_SPEECH_DURATION", 0.10
+            ),
+            vad_min_silence_duration=_float(
+                "VAD_MIN_SILENCE_DURATION", 0.40
+            ),
+            vad_prefix_padding_duration=_float(
+                "VAD_PREFIX_PADDING_DURATION", 0.30
+            ),
+            vad_activation_threshold=_float(
+                "VAD_ACTIVATION_THRESHOLD", 0.50
+            ),
+            vad_deactivation_threshold=_float(
+                "VAD_DEACTIVATION_THRESHOLD", 0.35
+            ),
+            min_endpointing_delay=_float("MIN_ENDPOINTING_DELAY", 0.50),
+            max_endpointing_delay=_float("MAX_ENDPOINTING_DELAY", 2.50),
             interruption_min_duration=_float(
                 "INTERRUPTION_MIN_DURATION", 0.5
             ),
@@ -266,6 +287,39 @@ class Settings:
 
         if self.tts_max_chunk_length <= 0:
             errors.append("TTS_MAX_CHUNK_LENGTH must be greater than 0")
+
+        if self.vad_min_speech_duration <= 0:
+            errors.append(
+                "VAD_MIN_SPEECH_DURATION must be greater than 0"
+            )
+
+        if self.vad_min_silence_duration < 0:
+            errors.append("VAD_MIN_SILENCE_DURATION cannot be negative")
+
+        if self.vad_prefix_padding_duration < 0:
+            errors.append(
+                "VAD_PREFIX_PADDING_DURATION cannot be negative"
+            )
+
+        if not 0 < self.vad_activation_threshold <= 1:
+            errors.append(
+                "VAD_ACTIVATION_THRESHOLD must be greater than 0 "
+                "and at most 1"
+            )
+
+        if not 0 < self.vad_deactivation_threshold:
+            errors.append(
+                "VAD_DEACTIVATION_THRESHOLD must be greater than 0"
+            )
+
+        if (
+            self.vad_deactivation_threshold
+            >= self.vad_activation_threshold
+        ):
+            errors.append(
+                "VAD_DEACTIVATION_THRESHOLD must be less than "
+                "VAD_ACTIVATION_THRESHOLD"
+            )
 
         if self.min_endpointing_delay < 0:
             errors.append("MIN_ENDPOINTING_DELAY cannot be negative")

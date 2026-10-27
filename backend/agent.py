@@ -46,7 +46,13 @@ BOOKING_TIMEOUT_SECONDS = 10.0
 def prewarm(proc) -> None:
     """Validate configuration and load the VAD once per worker process."""
     settings.validate()
-    proc.userdata["vad"] = silero.VAD.load()
+    proc.userdata["vad"] = silero.VAD.load(
+        min_speech_duration=settings.vad_min_speech_duration,
+        min_silence_duration=settings.vad_min_silence_duration,
+        prefix_padding_duration=settings.vad_prefix_padding_duration,
+        activation_threshold=settings.vad_activation_threshold,
+        deactivation_threshold=settings.vad_deactivation_threshold,
+    )
 
 
 server = AgentServer(setup_fnc=prewarm)
@@ -176,7 +182,15 @@ def _config_snapshot() -> dict:
             "min_buffer_size": settings.tts_min_buffer_size,
             "max_chunk_length": settings.tts_max_chunk_length,
         },
+        "vad": {
+            "min_speech_duration": settings.vad_min_speech_duration,
+            "min_silence_duration": settings.vad_min_silence_duration,
+            "prefix_padding_duration": settings.vad_prefix_padding_duration,
+            "activation_threshold": settings.vad_activation_threshold,
+            "deactivation_threshold": settings.vad_deactivation_threshold,
+        },
         "turn_handling": {
+            "turn_detection": "vad",
             "min_endpointing_delay": settings.min_endpointing_delay,
             "max_endpointing_delay": settings.max_endpointing_delay,
             "interruption_min_duration": settings.interruption_min_duration,
@@ -336,6 +350,16 @@ async def clinic_receptionist(ctx: agents.JobContext):
             stream_type=settings.stt_stream_type,
             mode=settings.stt_mode,
             endpointing=settings.stt_endpointing,
+            vad_sot_threshold=settings.vad_activation_threshold,
+            vad_min_speech_ms=round(
+                settings.vad_min_speech_duration * 1000
+            ),
+            vad_min_silence_ms=round(
+                settings.vad_min_silence_duration * 1000
+            ),
+            vad_prefix_padding_ms=round(
+                settings.vad_prefix_padding_duration * 1000
+            ),
         ),
         llm=sarvam.LLM(model=settings.llm_model),
         tts=sarvam.TTS(
@@ -347,6 +371,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
             max_chunk_length=settings.tts_max_chunk_length,
         ),
         turn_handling={
+            "turn_detection": "vad",
             "endpointing": {
                 "mode": "fixed",
                 "min_delay": settings.min_endpointing_delay,

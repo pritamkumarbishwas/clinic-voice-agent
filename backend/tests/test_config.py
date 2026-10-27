@@ -1,4 +1,62 @@
-from app.config import sanitize_run_id
+import pytest
+
+from app.config import Settings, sanitize_run_id
+
+VAD_ENV_KEYS = (
+    "VAD_MIN_SPEECH_DURATION",
+    "VAD_MIN_SILENCE_DURATION",
+    "VAD_PREFIX_PADDING_DURATION",
+    "VAD_ACTIVATION_THRESHOLD",
+    "VAD_DEACTIVATION_THRESHOLD",
+    "MIN_ENDPOINTING_DELAY",
+    "MAX_ENDPOINTING_DELAY",
+)
+
+
+def _clear_vad_env(monkeypatch):
+    for key in VAD_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def _set_required_env(monkeypatch):
+    monkeypatch.setenv("LIVEKIT_URL", "wss://example.livekit.cloud")
+    monkeypatch.setenv("LIVEKIT_API_KEY", "test-key")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "test-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "test-sarvam-key")
+
+
+def test_vad_defaults_are_tuned_for_natural_speech(monkeypatch):
+    _clear_vad_env(monkeypatch)
+
+    config = Settings.from_env()
+
+    assert config.vad_min_speech_duration == 0.10
+    assert config.vad_min_silence_duration == 0.40
+    assert config.vad_prefix_padding_duration == 0.30
+    assert config.vad_activation_threshold == 0.50
+    assert config.vad_deactivation_threshold == 0.35
+    assert config.min_endpointing_delay == 0.50
+    assert config.max_endpointing_delay == 2.50
+
+
+def test_vad_validation_rejects_invalid_values(monkeypatch):
+    _clear_vad_env(monkeypatch)
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("VAD_MIN_SPEECH_DURATION", "0")
+    monkeypatch.setenv("VAD_MIN_SILENCE_DURATION", "-0.1")
+    monkeypatch.setenv("VAD_PREFIX_PADDING_DURATION", "-0.1")
+    monkeypatch.setenv("VAD_ACTIVATION_THRESHOLD", "0")
+    monkeypatch.setenv("VAD_DEACTIVATION_THRESHOLD", "0.7")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    message = str(error.value)
+    assert "VAD_MIN_SPEECH_DURATION" in message
+    assert "VAD_MIN_SILENCE_DURATION" in message
+    assert "VAD_PREFIX_PADDING_DURATION" in message
+    assert "VAD_ACTIVATION_THRESHOLD" in message
+    assert "VAD_DEACTIVATION_THRESHOLD" in message
 
 
 def test_sanitize_run_id_accepts_safe_values():
