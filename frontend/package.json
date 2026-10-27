@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/lib/voice-errors.test.js src/lib/transcripts.test.js",
+    "test": "node --test src/lib/audio.test.js src/lib/voice-errors.test.js src/lib/transcripts.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

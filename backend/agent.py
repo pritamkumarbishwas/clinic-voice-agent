@@ -48,6 +48,7 @@ logger = logging.getLogger("clinic-booking-agent")
 
 AGENT_NAME = settings.livekit_agent_name
 TRANSCRIPT_TOPIC = "transcripts"
+CONTROL_TOPIC = "control"
 AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
 STT_REPEAT_PROMPT = (
@@ -186,6 +187,18 @@ def _is_llm_error(error) -> bool:
 
 def _is_tts_error(error) -> bool:
     return getattr(error, "type", None) == "tts_error"
+
+
+def _is_interrupt_request(packet) -> bool:
+    if getattr(packet, "topic", None) != CONTROL_TOPIC:
+        return False
+
+    try:
+        payload = json.loads(packet.data.decode("utf-8"))
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+
+    return isinstance(payload, dict) and payload.get("type") == "interrupt"
 
 
 def _is_timeout_error(error) -> bool:
@@ -555,6 +568,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
     llm_error_count = 0
     tts_error_count = 0
     llm_fallback_task: asyncio.Task | None = None
+    interrupt_tasks: set[asyncio.Task] = set()
     last_repeat_prompt_at = 0.0
 
     def prompt_repeat() -> None:
@@ -790,6 +804,29 @@ async def clinic_receptionist(ctx: agents.JobContext):
     def on_speech_created(event):
         speech_handles.append(event.speech_handle)
 
+    async def interrupt_speech() -> None:
+        try:
+            await session.interrupt(force=True)
+            logger.info(
+                "Caller stopped receptionist speech on call %s", call_id
+            )
+        except RuntimeError:
+            logger.debug(
+                "No receptionist speech to interrupt on call %s", call_id
+            )
+        except Exception:
+            logger.exception("Could not interrupt receptionist speech")
+
+    def on_data_received(packet) -> None:
+        if not _is_interrupt_request(packet):
+            return
+
+        task = asyncio.create_task(interrupt_speech())
+        interrupt_tasks.add(task)
+        task.add_done_callback(interrupt_tasks.discard)
+
+    ctx.room.on("data_received", on_data_received)
+
     @session.on("error")
     def on_session_error(event):
         nonlocal stt_error_count, llm_error_count, tts_error_count
@@ -867,6 +904,12 @@ async def clinic_receptionist(ctx: agents.JobContext):
             llm_fallback_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await llm_fallback_task
+
+        for task in tuple(interrupt_tasks):
+            task.cancel()
+        for task in tuple(interrupt_tasks):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
         with contextlib.suppress(Exception):
             await asyncio.wait_for(jobs.join(), timeout=5)

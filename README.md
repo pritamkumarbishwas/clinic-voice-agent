@@ -108,9 +108,15 @@ Open `http://localhost:5173` for the public patient page.
 Open `http://localhost:5173/admin/login` and use the admin account created
 above.
 
-The agent supports barge-in: start speaking while it talks and it stops. Clinic
-details are loaded from the `clinic` collection on each call, so changes in
-`/admin/clinic` apply to the next conversation.
+The browser plays the agent's remote audio track and shows an `Enable audio`
+prompt if autoplay is blocked. The agent supports automatic barge-in: start
+speaking while it talks and LiveKit interrupts the current speech. While the
+receptionist is speaking, a `Stop AI voice` button sends an explicit interrupt
+to the agent. `End call` disconnects the room and cleans up microphone tracks,
+audio elements, timers, and pending token requests. If the agent or room
+disconnects, the same cleanup runs automatically. Clinic details are loaded from
+the `clinic` collection on each call, so changes in `/admin/clinic` apply to the
+next conversation.
 
 ## Environment variables
 
@@ -210,7 +216,10 @@ cd backend
 ```
 
 Copy the printed `run_id` into the **Test run label** field on the admin Live
-call page, then complete the 20 calls in `benchmark-script.md`.
+call page, then complete the 20 calls in `benchmark-script.md`. The script
+includes a per-call table for transcription accuracy, response relevance,
+audible playback, barge-in, the **Stop AI voice** control, first-audio latency,
+and disconnect cleanup.
 
 Check progress:
 

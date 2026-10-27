@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   TriangleAlert,
   Volume2,
+  VolumeX,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/shared/empty-state";
@@ -39,6 +40,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiGet } from "@/lib/api";
+import {
+  CONTROL_TOPIC,
+  createInterruptPayload,
+  disposeAllAudio,
+  disposeAudio,
+} from "@/lib/audio";
 import { mergeTranscript } from "@/lib/transcripts";
 import { describeVoiceError, voiceError } from "@/lib/voice-errors";
 import { cn } from "@/lib/utils";
@@ -66,22 +73,6 @@ function clearTimer(ref) {
     window.clearTimeout(ref.current);
     ref.current = null;
   }
-}
-
-function disposeAudio(entry) {
-  try {
-    entry.track.detach(entry.element);
-  } catch (detachError) {
-    console.warn("Could not detach an audio track", detachError);
-  }
-  entry.element.remove();
-}
-
-function disposeAllAudio(elements) {
-  for (const entry of elements.values()) {
-    disposeAudio(entry);
-  }
-  elements.clear();
 }
 
 const CONNECTION_STATES = {
@@ -193,7 +184,7 @@ const TIPS = [
   {
     icon: ShieldCheck,
     title: "Safe to interrupt",
-    text: "Barge in whenever you need to clarify.",
+    text: "Speak over the AI or tap Stop AI voice.",
   },
 ];
 
@@ -216,6 +207,7 @@ export default function LiveCall({ admin = false }) {
   const [phase, setPhase] = useState("idle");
   const [micState, setMicState] = useState("off");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [transcripts, setTranscripts] = useState([]);
   const [error, setError] = useState(null);
   const [runLabel, setRunLabel] = useState("");
@@ -245,6 +237,24 @@ export default function LiveCall({ admin = false }) {
 
     disposeAudio(entry);
     audioElementsRef.current.delete(track.sid);
+  }
+
+  async function stopAgentSpeech() {
+    const room = roomRef.current;
+    if (!room) return;
+
+    setAgentSpeaking(false);
+    try {
+      await room.localParticipant.publishData(createInterruptPayload(), {
+        reliable: true,
+        topic: CONTROL_TOPIC,
+      });
+    } catch (controlError) {
+      if (roomRef.current === room) {
+        setAgentSpeaking(true);
+      }
+      console.warn("Could not stop the receptionist's voice", controlError);
+    }
   }
 
   function clearTokenTimeout() {
@@ -324,6 +334,7 @@ export default function LiveCall({ admin = false }) {
     setPhase(finalPhase);
     setMicState("off");
     setAudioBlocked(false);
+    setAgentSpeaking(false);
     setStartedAt(null);
     setError(sessionError);
 
@@ -354,6 +365,18 @@ export default function LiveCall({ admin = false }) {
 
     on(RoomEvent.TrackSubscribed, attachAudio);
     on(RoomEvent.TrackUnsubscribed, detachAudio);
+
+    on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      if (!sessionIsCurrent(sessionId)) return;
+
+      const agent = findAgent(room);
+      setAgentSpeaking(
+        Boolean(
+          agent &&
+            speakers.some((speaker) => speaker.identity === agent.identity)
+        )
+      );
+    });
 
     on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
       if (!sessionIsCurrent(sessionId) || topic !== "transcripts") return;
@@ -528,6 +551,7 @@ export default function LiveCall({ admin = false }) {
     sessionIdRef.current = sessionId;
     intentionalStopRef.current = false;
     reconnectingRef.current = false;
+    setAgentSpeaking(false);
     setStartedAt(null);
     transcriptPinnedRef.current = true;
 
@@ -760,7 +784,9 @@ export default function LiveCall({ admin = false }) {
   } else if (phase === "waiting_for_agent") {
     statusText = "Connected. Waiting for the receptionist to join...";
   } else if (isConnected) {
-    statusText = "Connected. Speak naturally.";
+    statusText = agentSpeaking
+      ? "Receptionist is speaking. Interrupt or stop the voice anytime."
+      : "Connected. Speak naturally.";
   } else if (isReconnecting) {
     statusText = "Connection interrupted. Reconnecting...";
   } else if (phase === "ended") {
@@ -849,7 +875,21 @@ export default function LiveCall({ admin = false }) {
                 </Alert>
               )}
 
-              <div className="mt-2">
+              <div className="mt-2 space-y-2">
+                {isConnected && agentSpeaking && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xl"
+                    onClick={() => {
+                      void stopAgentSpeech();
+                    }}
+                    className="w-full"
+                  >
+                    <VolumeX />
+                    Stop AI voice
+                  </Button>
+                )}
                 {canStop ? (
                   <Button
                     type="button"
@@ -965,6 +1005,12 @@ export default function LiveCall({ admin = false }) {
 
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{transcripts.length} messages</Badge>
+                {isConnected && agentSpeaking && (
+                  <Badge variant="secondary">
+                    <Volume2 className="size-3.5" />
+                    Receptionist speaking
+                  </Badge>
+                )}
                 {isConnected && micState === "active" && (
                   <Badge variant="success">
                     <span className="size-1.5 animate-pulse rounded-full bg-success" />

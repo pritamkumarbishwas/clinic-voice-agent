@@ -39,6 +39,54 @@ scenario `PASS` only when every check in the last column is true.
 | 19 | Interrupt then continue | Interrupt once, then complete the request for Dr. Singh tomorrow | Recovers cleanly without losing the goal | One correct booking flow |
 | 20 | End without booking | "Okay, main soch ke call karta hoon." | Confirms no booking was made; closes politely | No appointment created |
 
+## Playback, interruption, and cleanup recording
+
+Record one row per benchmark call. Use `PASS`, `FAIL`, or `N/A`; keep the raw
+transcript and call id in the notes.
+
+- **Transcript**: names, dates, times, and phone digits match what was said.
+- **Audio**: the Hindi voice is audible and intelligible; if autoplay is
+  blocked, tap **Enable audio** once and mark the call pass.
+- **End button**: **End call** disconnects immediately and the microphone
+  indicator turns off.
+- **Barge-in**: for scenarios 11, 12, and 19, start speaking while the agent is
+  talking. Pass only if stale playback stops and the agent answers the latest
+  request. Mark `N/A` for the other scenarios.
+- **Stop AI voice**: during at least one long reply, tap **Stop AI voice** and
+  confirm playback stops. Record this in the notes.
+- **First audio ms**: read `end_to_audio_ms` from the latency dashboard/report
+  for the first assistant turn, or time the first audible word manually.
+- **Cleanup**: after ending, no audio continues, the mic stops, and a new call
+  starts without duplicate audio. Also test one tab close or agent disconnect.
+
+| # | Transcript | Relevant reply | Audio | End button | Barge-in | First audio ms | Cleanup | Notes |
+|---|---|---|---|---|---|---|---|---|
+| 1 |  |  |  |  |  |  |  |  |
+| 2 |  |  |  |  |  |  |  |  |
+| 3 |  |  |  |  |  |  |  |  |
+| 4 |  |  |  |  |  |  |  |  |
+| 5 |  |  |  |  |  |  |  |  |
+| 6 |  |  |  |  |  |  |  |  |
+| 7 |  |  |  |  |  |  |  |  |
+| 8 |  |  |  |  |  |  |  |  |
+| 9 |  |  |  |  |  |  |  |  |
+| 10 |  |  |  |  |  |  |  |  |
+| 11 |  |  |  |  |  |  |  |  |
+| 12 |  |  |  |  |  |  |  |  |
+| 13 |  |  |  |  |  |  |  |  |
+| 14 |  |  |  |  |  |  |  |  |
+| 15 |  |  |  |  |  |  |  |  |
+| 16 |  |  |  |  |  |  |  |  |
+| 17 |  |  |  |  |  |  |  |  |
+| 18 |  |  |  |  |  |  |  |  |
+| 19 |  |  |  |  |  |  |  |  |
+| 20 |  |  |  |  |  |  |  |  |
+
+After the run, record the p50/p95 `end_to_audio_ms` from the generated report
+under the table. A call is not a section 6 pass if the browser never played
+audio, an interruption left stale speech playing, or cleanup left the
+microphone/audio active.
+
 ## STT accuracy spot-check
 
 Run these five extra conversations after the 20 benchmark calls. Open the call

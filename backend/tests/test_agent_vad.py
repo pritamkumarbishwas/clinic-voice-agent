@@ -23,6 +23,25 @@ def test_is_tts_error_only_matches_tts_errors():
     assert not agent._is_tts_error(None)
 
 
+def test_is_interrupt_request_requires_control_topic_and_payload():
+    assert agent._is_interrupt_request(
+        SimpleNamespace(topic="control", data=b'{"type":"interrupt"}')
+    )
+    assert not agent._is_interrupt_request(
+        SimpleNamespace(topic="transcripts", data=b'{"type":"interrupt"}')
+    )
+    assert not agent._is_interrupt_request(
+        SimpleNamespace(topic="control", data=b'{"type":"other"}')
+    )
+    assert not agent._is_interrupt_request(
+        SimpleNamespace(topic="control", data=b"not json")
+    )
+    assert not agent._is_interrupt_request(
+        SimpleNamespace(topic="control", data=b'["interrupt"]')
+    )
+    assert not agent._is_interrupt_request(None)
+
+
 def test_build_tts_streams_with_http_fallback(monkeypatch):
     monkeypatch.setattr(
         agent,
