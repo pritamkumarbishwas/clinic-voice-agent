@@ -9,6 +9,10 @@ from pymongo.errors import PyMongoError
 
 from app.config import settings
 from app.database import appointments, calls, client, doctors, slots
+from app.services.clinic_service import (
+    closed_holiday_for_date,
+    get_clinic_profile,
+)
 
 logger = logging.getLogger("clinic-booking")
 
@@ -110,6 +114,15 @@ def _local_to_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+async def _closed_holiday_for_date(requested_date):
+    try:
+        profile = await get_clinic_profile()
+    except Exception:
+        logger.exception("Could not load clinic holidays")
+        return None
+    return closed_holiday_for_date(profile, requested_date)
+
+
 async def check_availability(date: str, doctor_name: str) -> dict:
     """Return real, future, available slots for a doctor on a local clinic date."""
     try:
@@ -118,6 +131,19 @@ async def check_availability(date: str, doctor_name: str) -> dict:
         ).date()
     except (TypeError, ValueError):
         return {"ok": False, "message": "Use date format YYYY-MM-DD."}
+
+    holiday = await _closed_holiday_for_date(requested_date)
+    if holiday is not None:
+        return {
+            "ok": False,
+            "code": "CLINIC_CLOSED",
+            "date": requested_date.isoformat(),
+            "slots": [],
+            "message": (
+                f"Clinic is closed on {requested_date.isoformat()} "
+                f"({holiday.name}). Offer another date."
+            ),
+        }
 
     doctor = await _find_doctor(doctor_name)
     if not doctor:
@@ -205,6 +231,24 @@ async def book_appointment(
         slot_object_id = ObjectId(slot_id)
     except (InvalidId, TypeError):
         return {"ok": False, "message": "Invalid appointment slot."}
+
+    slot_preview = await slots.find_one(
+        {"_id": slot_object_id},
+        {"start_at": 1},
+    )
+    if slot_preview is not None:
+        local_date = slot_preview["start_at"].astimezone(CLINIC_TZ).date()
+        holiday = await _closed_holiday_for_date(local_date)
+        if holiday is not None:
+            return {
+                "ok": False,
+                "code": "CLINIC_CLOSED",
+                "message": (
+                    f"Clinic is closed on {local_date.isoformat()} "
+                    f"({holiday.name}). Do not book this slot. "
+                    "Offer another date."
+                ),
+            }
 
     appointment_object_id = ObjectId()
 

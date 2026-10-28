@@ -1,4 +1,4 @@
-import {
+﻿import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -89,7 +89,7 @@ export default function Appointments() {
   });
   const { currentData, isError, isFetching, isLoading, refetch } =
     appointmentsQuery;
-  const doctorsQuery = useListDoctorsQuery();
+  const doctorsQuery = useListDoctorsQuery({ includeInactive: true });
 
   const appointments = currentData?.items ?? [];
   const doctors = doctorsQuery.data?.items ?? [];
@@ -178,6 +178,7 @@ export default function Appointments() {
                   <SelectItem key={item.name} value={item.name}>
                     {item.name}
                     {item.specialty ? ` · ${item.specialty}` : ""}
+                    {item.active === false ? " (inactive)" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

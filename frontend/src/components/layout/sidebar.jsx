@@ -1,4 +1,4 @@
-import { Languages, LogOut, Sparkles } from "lucide-react";
+﻿import { Languages, LogOut, Sparkles } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { Brand } from "@/components/layout/brand";
@@ -23,7 +23,7 @@ function Sidebar() {
         <Brand />
       </div>
 
-      <div className="px-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3">
         <p className="px-3 pb-2 text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
           Workspace
         </p>
@@ -82,9 +82,9 @@ function Sidebar() {
               <Sparkles className="size-4" />
             </span>
             <div>
-              <p className="text-xs font-bold">Voice stack ready</p>
+              <p className="text-xs font-bold">Clinic receptionist</p>
               <p className="text-[10px] text-muted-foreground">
-                LiveKit + Sarvam
+                Hindi + Hinglish voice AI
               </p>
             </div>
           </div>
@@ -95,7 +95,7 @@ function Sidebar() {
           </p>
 
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {["Hindi", "English", "Hinglish"].map((language) => (
+            {["Hindi", "Hinglish"].map((language) => (
               <Badge key={language} variant="outline" className="text-[10px]">
                 {language}
               </Badge>
@@ -104,7 +104,7 @@ function Sidebar() {
 
           <div className="mt-3 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
             <Languages className="size-3.5" />
-            Multilingual by default
+            Bilingual by default
           </div>
         </div>
 

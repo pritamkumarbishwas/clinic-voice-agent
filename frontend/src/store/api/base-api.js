@@ -58,6 +58,7 @@ export const clinicApi = createApi({
     "Appointment",
     "Doctor",
     "Clinic",
+    "Knowledge",
     "Run",
     "Latency",
   ],

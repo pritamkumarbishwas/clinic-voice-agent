@@ -44,6 +44,8 @@ from app.services.clinic_service import (
     format_clinic_for_prompt,
     get_clinic_profile,
 )
+from app.services.embedding_service import RagUnavailableError
+from app.services.knowledge_service import search_knowledge
 
 load_dotenv()
 
@@ -57,6 +59,7 @@ TRANSCRIPT_TOPIC = "transcripts"
 CONTROL_TOPIC = "control"
 AVAILABILITY_TIMEOUT_SECONDS = 8.0
 BOOKING_TIMEOUT_SECONDS = 10.0
+KNOWLEDGE_TIMEOUT_SECONDS = settings.rag_timeout_seconds
 STT_REPEAT_PROMPT = (
     "Sorry, main aapki awaaz theek se nahi sun paya. "
     "Kya aap dobara bata sakte hain?"
@@ -380,6 +383,64 @@ class ClinicReceptionist(Agent):
                 }
             )
 
+    @function_tool()
+    async def search_clinic_knowledge(
+        self,
+        context: RunContext,
+        query: str,
+    ) -> str:
+        """Search admin-managed clinic FAQ knowledge.
+
+        Args:
+            query: The caller's clinic FAQ question or topic.
+        """
+        cleaned = " ".join((query or "").split())
+        if not cleaned:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "message": "Provide a clinic FAQ topic to search.",
+                }
+            )
+
+        try:
+            results = await asyncio.wait_for(
+                search_knowledge(cleaned),
+                timeout=KNOWLEDGE_TIMEOUT_SECONDS,
+            )
+            return json.dumps(
+                {
+                    "ok": True,
+                    "results": results,
+                    "message": (
+                        "Answer only from these results. If they do not "
+                        "answer the question, say clinic staff will confirm."
+                    ),
+                },
+                default=str,
+            )
+        except RagUnavailableError:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "message": (
+                        "Clinic knowledge search is unavailable. "
+                        "Say clinic staff will confirm."
+                    ),
+                }
+            )
+        except Exception:
+            logger.exception("Clinic knowledge search failed")
+            return json.dumps(
+                {
+                    "ok": False,
+                    "message": (
+                        "Clinic knowledge search failed. Say clinic staff "
+                        "will confirm. Do not invent an answer."
+                    ),
+                }
+            )
+
 
 @server.rtc_session(agent_name=AGENT_NAME)
 async def clinic_receptionist(ctx: agents.JobContext):
@@ -396,7 +457,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
         logger.exception("Could not load clinic profile")
         clinic_profile = DEFAULT_CLINIC.model_dump()
     clinic_name = str(clinic_profile.get("name") or "")
-    clinic_details = format_clinic_for_prompt(clinic_profile)
+    clinic_details = format_clinic_for_prompt(clinic_profile, today=today)
 
     try:
         doctor_docs = await get_doctor_directory()

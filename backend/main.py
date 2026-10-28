@@ -9,7 +9,17 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from livekit import api
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -40,12 +50,36 @@ from app.database import (
 )
 from app.services.appointment_service import (
     list_appointments as db_list_appointments,
-    list_doctors as db_list_doctors,
 )
 from app.services.clinic_service import (
     ClinicProfile,
     get_clinic_profile,
     update_clinic_profile,
+)
+from app.services.doctor_service import (
+    DoctorProfile,
+    count_future_appointments,
+    create_doctor,
+    deactivate_doctor,
+    generate_doctor_slots,
+    get_doctor,
+    list_doctors,
+    update_doctor,
+)
+from app.services.embedding_service import RagUnavailableError
+from app.services.knowledge_service import (
+    KnowledgeDocumentInput,
+    KnowledgeDocumentUpdate,
+    KnowledgeSearchRequest,
+    create_document,
+    delete_document,
+    extract_upload_text,
+    guess_title_from_filename,
+    knowledge_status,
+    list_documents,
+    normalize_category,
+    search_knowledge,
+    update_document,
 )
 from app.services.latency_report import (
     LATENCY_FIELDS,
@@ -417,8 +451,181 @@ async def list_appointments(
 
 
 @app.get("/api/doctors")
-async def list_doctors(_: CurrentUser = Depends(require_admin)):
-    return {"items": await db_list_doctors()}
+async def read_doctors(
+    include_inactive: bool = Query(False),
+    _: CurrentUser = Depends(require_admin),
+):
+    return {"items": await list_doctors(include_inactive=include_inactive)}
+
+
+@app.post("/api/doctors")
+async def create_doctor_endpoint(
+    payload: DoctorProfile,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await create_doctor(payload)
+    except ValueError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.put("/api/doctors/{doctor_id}")
+async def update_doctor_endpoint(
+    doctor_id: str,
+    payload: DoctorProfile,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await update_doctor(doctor_id, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        status_code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.delete("/api/doctors/{doctor_id}")
+async def deactivate_doctor_endpoint(
+    doctor_id: str,
+    cancel_future: bool = Query(False),
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await deactivate_doctor(
+            doctor_id, cancel_future=cancel_future
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/doctors/{doctor_id}/future-appointments")
+async def doctor_future_appointments(
+    doctor_id: str,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        await get_doctor(doctor_id)
+        return {"count": await count_future_appointments(doctor_id)}
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/doctors/{doctor_id}/slots")
+async def generate_doctor_slots_endpoint(
+    doctor_id: str,
+    days: int = Query(14, ge=1, le=60),
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await generate_doctor_slots(doctor_id, days=days)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/knowledge")
+async def read_knowledge(_: CurrentUser = Depends(require_admin)):
+    return {
+        "items": await list_documents(),
+        **knowledge_status(),
+    }
+
+
+@app.post("/api/knowledge")
+async def create_knowledge_endpoint(
+    payload: KnowledgeDocumentInput,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await create_document(payload)
+    except RagUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.put("/api/knowledge/{knowledge_id}")
+async def update_knowledge_endpoint(
+    knowledge_id: str,
+    payload: KnowledgeDocumentUpdate,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return await update_document(knowledge_id, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/knowledge/{knowledge_id}")
+async def delete_knowledge_endpoint(
+    knowledge_id: str,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        await delete_document(knowledge_id)
+        return {"ok": True}
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/knowledge/search")
+async def search_knowledge_endpoint(
+    payload: KnowledgeSearchRequest,
+    _: CurrentUser = Depends(require_admin),
+):
+    try:
+        return {
+            "results": await search_knowledge(
+                payload.query, top_k=payload.top_k
+            ),
+            **knowledge_status(),
+        }
+    except RagUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/knowledge/upload")
+async def upload_knowledge_endpoint(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    category: str = Form("general"),
+    active: bool = Form(True),
+    _: CurrentUser = Depends(require_admin),
+):
+    data = await file.read()
+    if len(data) > settings.rag_max_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "File is too large. Maximum size is "
+                f"{settings.rag_max_upload_bytes} bytes."
+            ),
+        )
+
+    try:
+        content = extract_upload_text(file.filename or "", data)
+        payload = KnowledgeDocumentInput(
+            title=title.strip()
+            or guess_title_from_filename(file.filename or ""),
+            category=normalize_category(category),
+            content=content,
+            active=active,
+        )
+        return await create_document(payload)
+    except RagUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/clinic")

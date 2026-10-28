@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/lib/api-error.test.js src/lib/audio.test.js src/lib/voice-errors.test.js src/lib/transcripts.test.js src/store/slices/auth-slice.test.js",
+    "test": "node --test src/lib/api-error.test.js src/lib/audio.test.js src/lib/clinic-profile.test.js src/lib/doctors.test.js src/lib/voice-errors.test.js src/lib/transcripts.test.js src/store/slices/auth-slice.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

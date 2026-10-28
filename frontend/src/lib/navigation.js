@@ -1,9 +1,11 @@
 import {
   AudioLines,
+  BookOpen,
   CalendarDays,
   Gauge,
   History,
   Stethoscope,
+  UsersRound,
 } from "lucide-react";
 
 export const NAV_ITEMS = [
@@ -32,12 +34,28 @@ export const NAV_ITEMS = [
     icon: History,
   },
   {
+    id: "doctors",
+    to: "/admin/doctors",
+    label: "Doctors",
+    shortLabel: "Doctors",
+    description: "Roster, schedules, and slots",
+    icon: UsersRound,
+  },
+  {
     id: "clinic",
     to: "/admin/clinic",
     label: "Clinic profile",
     shortLabel: "Clinic",
-    description: "Contact, hours, and fees",
+    description: "Contact, hours, services, and holidays",
     icon: Stethoscope,
+  },
+  {
+    id: "knowledge",
+    to: "/admin/knowledge",
+    label: "Knowledge base",
+    shortLabel: "Knowledge",
+    description: "Searchable clinic FAQs and documents",
+    icon: BookOpen,
   },
   {
     id: "latency",

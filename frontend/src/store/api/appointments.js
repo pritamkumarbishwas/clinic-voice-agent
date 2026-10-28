@@ -25,7 +25,10 @@ const appointmentsApi = clinicApi.injectEndpoints({
       providesTags: [APPOINTMENT_LIST_TAG],
     }),
     listDoctors: build.query({
-      query: () => "/api/doctors",
+      query: ({ includeInactive = false } = {}) => ({
+        url: "/api/doctors",
+        params: { include_inactive: includeInactive },
+      }),
       providesTags: [DOCTOR_LIST_TAG],
     }),
   }),

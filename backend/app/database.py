@@ -21,6 +21,7 @@ db = client[DATABASE_NAME]
 users = db["users"]
 clinic = db["clinic"]
 doctors = db["doctors"]
+clinic_knowledge = db["clinic_knowledge"]
 slots = db["slots"]
 appointments = db["appointments"]
 calls = db["calls"]
@@ -37,6 +38,12 @@ async def initialize_database() -> None:
 
     await doctors.create_index([("name", ASCENDING)])
     await doctors.create_index([("active", ASCENDING), ("name", ASCENDING)])
+
+    await clinic_knowledge.create_index([("active", ASCENDING)])
+    await clinic_knowledge.create_index(
+        [("category", ASCENDING), ("active", ASCENDING)]
+    )
+    await clinic_knowledge.create_index([("updated_at", DESCENDING)])
 
     await slots.create_index([("doctor_id", ASCENDING), ("start_at", ASCENDING)])
     await slots.create_index([("status", ASCENDING), ("start_at", ASCENDING)])

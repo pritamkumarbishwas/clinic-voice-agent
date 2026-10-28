@@ -18,6 +18,8 @@ import Login from "./Login";
 const Appointments = lazy(() => import("./Appointments"));
 const CallLog = lazy(() => import("./CallLog"));
 const ClinicSettings = lazy(() => import("./ClinicSettings"));
+const Doctors = lazy(() => import("./Doctors"));
+const Knowledge = lazy(() => import("./Knowledge"));
 const LatencyDashboard = lazy(() => import("./LatencyDashboard"));
 const LiveCall = lazy(() => import("./LiveCall"));
 
@@ -50,7 +52,9 @@ export default function App() {
               <Route path="live" element={<LiveCall admin />} />
               <Route path="appointments" element={<Appointments />} />
               <Route path="calls" element={<CallLog />} />
+              <Route path="doctors" element={<Doctors />} />
               <Route path="clinic" element={<ClinicSettings />} />
+              <Route path="knowledge" element={<Knowledge />} />
               <Route path="latency" element={<LatencyDashboard />} />
             </Route>
           </Route>

@@ -1,8 +1,10 @@
 import {
   Loader2,
+  Plus,
   RefreshCw,
   Save,
   Stethoscope,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { useState } from "react";
@@ -23,24 +25,18 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api-error";
 import {
+  cleanClinicProfile,
+  emptyHoliday,
+  emptyService,
+  toClinicProfile,
+} from "@/lib/clinic-profile";
+import {
   useGetClinicQuery,
   useUpdateClinicMutation,
 } from "@/store/api";
 
-function toProfile(data) {
-  return {
-    name: data?.name ?? "",
-    address: data?.address ?? "",
-    phone: data?.phone ?? "",
-    hours: {
-      open: data?.hours?.open ?? "10:00",
-      close: data?.hours?.close ?? "17:00",
-      days: data?.hours?.days ?? "Mon-Sat",
-    },
-    consultation_fee: data?.consultation_fee ?? "",
-    emergency_note: data?.emergency_note ?? "",
-  };
-}
+const TEXTAREA_CLASS =
+  "w-full rounded-lg border border-input bg-background/70 px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25";
 
 function ClinicProfileForm({ initialProfile }) {
   const [profile, setProfile] = useState(initialProfile);
@@ -60,6 +56,60 @@ function ClinicProfileForm({ initialProfile }) {
     }));
   }
 
+  function setService(index, field, value) {
+    setProfile((previous) => ({
+      ...previous,
+      services: previous.services.map((service, serviceIndex) =>
+        serviceIndex === index
+          ? { ...service, [field]: value }
+          : service
+      ),
+    }));
+  }
+
+  function addService() {
+    setProfile((previous) => ({
+      ...previous,
+      services: [...previous.services, emptyService()],
+    }));
+  }
+
+  function removeService(index) {
+    setProfile((previous) => ({
+      ...previous,
+      services: previous.services.filter(
+        (_, serviceIndex) => serviceIndex !== index
+      ),
+    }));
+  }
+
+  function setHoliday(index, field, value) {
+    setProfile((previous) => ({
+      ...previous,
+      holidays: previous.holidays.map((holiday, holidayIndex) =>
+        holidayIndex === index
+          ? { ...holiday, [field]: value }
+          : holiday
+      ),
+    }));
+  }
+
+  function addHoliday() {
+    setProfile((previous) => ({
+      ...previous,
+      holidays: [...previous.holidays, emptyHoliday()],
+    }));
+  }
+
+  function removeHoliday(index) {
+    setProfile((previous) => ({
+      ...previous,
+      holidays: previous.holidays.filter(
+        (_, holidayIndex) => holidayIndex !== index
+      ),
+    }));
+  }
+
   function resetProfile() {
     setSaveError("");
     setProfile(savedProfile);
@@ -70,8 +120,10 @@ function ClinicProfileForm({ initialProfile }) {
     setSaveError("");
 
     try {
-      const saved = await updateClinic(profile).unwrap();
-      const savedValues = toProfile(saved);
+      const saved = await updateClinic(
+        cleanClinicProfile(profile)
+      ).unwrap();
+      const savedValues = toClinicProfile(saved);
 
       setProfile(savedValues);
       setSavedProfile(savedValues);
@@ -93,7 +145,7 @@ function ClinicProfileForm({ initialProfile }) {
         </Alert>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="space-y-5">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Clinic information</CardTitle>
@@ -139,7 +191,33 @@ function ClinicProfileForm({ initialProfile }) {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="clinic-fee">Consultation fee</Label>
+                <Label htmlFor="clinic-email">Email</Label>
+                <Input
+                  id="clinic-email"
+                  type="email"
+                  value={profile.email}
+                  onChange={(event) => setField("email", event.target.value)}
+                  maxLength={254}
+                  placeholder="reception@clinic.example"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="clinic-website">Website</Label>
+                <Input
+                  id="clinic-website"
+                  type="url"
+                  value={profile.website}
+                  onChange={(event) =>
+                    setField("website", event.target.value)
+                  }
+                  maxLength={300}
+                  placeholder="https://clinic.example"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="clinic-fee">General consultation fee</Label>
                 <Input
                   id="clinic-fee"
                   value={profile.consultation_fee}
@@ -179,43 +257,251 @@ function ClinicProfileForm({ initialProfile }) {
                   id="clinic-days"
                   value={profile.hours.days}
                   onChange={(event) => setHours("days", event.target.value)}
-                  maxLength={80}
+                  maxLength={120}
                   placeholder="Monday to Saturday"
                 />
               </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="clinic-emergency">Emergency note</Label>
-                <textarea
-                  id="clinic-emergency"
-                  value={profile.emergency_note}
-                  onChange={(event) =>
-                    setField("emergency_note", event.target.value)
-                  }
-                  maxLength={300}
-                  rows={3}
-                  className="w-full rounded-lg border border-input bg-background/70 px-3 py-2 text-sm shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
-                  placeholder="For emergencies, call 108."
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={resetProfile}
-                disabled={saving}
-              >
-                Reset
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? <Loader2 className="animate-spin" /> : <Save />}
-                {saving ? "Saving..." : "Save clinic profile"}
-              </Button>
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-base">Services and fees</CardTitle>
+              <CardDescription>
+                The receptionist uses this list for service questions. Leave
+                the fee blank to use the general consultation fee.
+              </CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={addService}>
+              <Plus />
+              Add service
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {profile.services.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No services configured yet.
+              </p>
+            ) : (
+              profile.services.map((service, index) => (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-xl border border-border/70 p-3 sm:grid-cols-[1.2fr_0.7fr_1.5fr_auto]"
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`service-name-${index}`}>Service</Label>
+                    <Input
+                      id={`service-name-${index}`}
+                      value={service.name}
+                      onChange={(event) =>
+                        setService(index, "name", event.target.value)
+                      }
+                      maxLength={120}
+                      placeholder="General consultation"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`service-fee-${index}`}>Fee</Label>
+                    <Input
+                      id={`service-fee-${index}`}
+                      value={service.fee}
+                      onChange={(event) =>
+                        setService(index, "fee", event.target.value)
+                      }
+                      maxLength={120}
+                      placeholder="500 rupees"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`service-desc-${index}`}>Description</Label>
+                    <Input
+                      id={`service-desc-${index}`}
+                      value={service.description}
+                      onChange={(event) =>
+                        setService(index, "description", event.target.value)
+                      }
+                      maxLength={300}
+                      placeholder="Fever, cough, and routine check-ups"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeService(index)}
+                      aria-label="Remove service"
+                      title="Remove service"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Policies</CardTitle>
+            <CardDescription>
+              These are informational. The receptionist cannot cancel or
+              change appointments.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="clinic-appointment-policy">
+                Appointment policy
+              </Label>
+              <textarea
+                id="clinic-appointment-policy"
+                value={profile.appointment_policy}
+                onChange={(event) =>
+                  setField("appointment_policy", event.target.value)
+                }
+                maxLength={1000}
+                rows={3}
+                className={TEXTAREA_CLASS}
+                placeholder="Arrive 10 minutes early and bring previous prescriptions."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="clinic-cancellation-policy">
+                Cancellation policy
+              </Label>
+              <textarea
+                id="clinic-cancellation-policy"
+                value={profile.cancellation_policy}
+                onChange={(event) =>
+                  setField("cancellation_policy", event.target.value)
+                }
+                maxLength={1000}
+                rows={3}
+                className={TEXTAREA_CLASS}
+                placeholder="Inform clinic staff at least 24 hours before cancelling."
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-base">Holiday closures</CardTitle>
+              <CardDescription>
+                Closed holiday dates are blocked for new bookings.
+              </CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={addHoliday}>
+              <Plus />
+              Add holiday
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {profile.holidays.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No holiday closures configured.
+              </p>
+            ) : (
+              profile.holidays.map((holiday, index) => (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-xl border border-border/70 p-3 sm:grid-cols-[0.8fr_1.4fr_auto_auto]"
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`holiday-date-${index}`}>Date</Label>
+                    <Input
+                      id={`holiday-date-${index}`}
+                      type="date"
+                      value={holiday.date}
+                      onChange={(event) =>
+                        setHoliday(index, "date", event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`holiday-name-${index}`}>Holiday</Label>
+                    <Input
+                      id={`holiday-name-${index}`}
+                      value={holiday.name}
+                      onChange={(event) =>
+                        setHoliday(index, "name", event.target.value)
+                      }
+                      maxLength={120}
+                      placeholder="Diwali"
+                    />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={holiday.closed}
+                        onChange={(event) =>
+                          setHoliday(index, "closed", event.target.checked)
+                        }
+                        className="size-4 rounded border-input accent-primary"
+                      />
+                      Closed
+                    </label>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeHoliday(index)}
+                      aria-label="Remove holiday"
+                      title="Remove holiday"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Emergency note</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5">
+              <Label htmlFor="clinic-emergency">Emergency note</Label>
+              <textarea
+                id="clinic-emergency"
+                value={profile.emergency_note}
+                onChange={(event) =>
+                  setField("emergency_note", event.target.value)
+                }
+                maxLength={300}
+                rows={3}
+                className={TEXTAREA_CLASS}
+                placeholder="For emergencies, call 108."
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={resetProfile}
+            disabled={saving}
+          >
+            Reset
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            {saving ? "Saving..." : "Save clinic profile"}
+          </Button>
+        </div>
       </form>
     </>
   );
@@ -249,7 +535,7 @@ export default function ClinicSettings() {
         icon={Stethoscope}
         eyebrow="Clinic profile"
         title="Clinic details"
-        description="The AI receptionist uses these details to answer questions about timings, location, phone, and fees. If a field is empty, it will say staff will confirm."
+        description="The AI receptionist uses these details for timings, contact, services, fees, policies, and holidays. Empty fields are answered with staff confirmation."
       />
 
       {isError || !currentData ? (
@@ -273,7 +559,7 @@ export default function ClinicSettings() {
           </Button>
         </Alert>
       ) : (
-        <ClinicProfileForm initialProfile={toProfile(currentData)} />
+        <ClinicProfileForm initialProfile={toClinicProfile(currentData)} />
       )}
     </div>
   );

@@ -142,6 +142,17 @@ class Settings:
     analysis_worker_enabled: bool
     analysis_transcript_chars: int
 
+    openai_api_key: str
+    rag_enabled: bool
+    openai_embedding_model: str
+    rag_top_k: int
+    rag_min_score: float
+    rag_chunk_chars: int
+    rag_chunk_overlap: int
+    rag_timeout_seconds: float
+    rag_max_upload_bytes: int
+    rag_max_pdf_pages: int
+
     jwt_secret: str
     jwt_algorithm: str
     jwt_expire_minutes: int
@@ -224,6 +235,20 @@ class Settings:
             analysis_transcript_chars=_int(
                 "ANALYSIS_TRANSCRIPT_CHARS", 6000
             ),
+            openai_api_key=_text("OPENAI_API_KEY", ""),
+            rag_enabled=_bool("RAG_ENABLED", True),
+            openai_embedding_model=_text(
+                "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+            ),
+            rag_top_k=_int("RAG_TOP_K", 3),
+            rag_min_score=_float("RAG_MIN_SCORE", 0.25),
+            rag_chunk_chars=_int("RAG_CHUNK_CHARS", 700),
+            rag_chunk_overlap=_int("RAG_CHUNK_OVERLAP", 100),
+            rag_timeout_seconds=_float("RAG_TIMEOUT_SECONDS", 4.0),
+            rag_max_upload_bytes=_int(
+                "RAG_MAX_UPLOAD_BYTES", 5_000_000
+            ),
+            rag_max_pdf_pages=_int("RAG_MAX_PDF_PAGES", 50),
             jwt_secret=_text("JWT_SECRET", ""),
             jwt_algorithm=_text("JWT_ALGORITHM", "HS256").upper(),
             jwt_expire_minutes=_int("JWT_EXPIRE_MINUTES", 480),
@@ -403,6 +428,34 @@ class Settings:
             errors.append(
                 "ANALYSIS_TRANSCRIPT_CHARS must be at least 100"
             )
+
+        if self.rag_top_k <= 0:
+            errors.append("RAG_TOP_K must be greater than 0")
+
+        if not 0 <= self.rag_min_score <= 1:
+            errors.append("RAG_MIN_SCORE must be between 0 and 1")
+
+        if self.rag_chunk_chars < 100:
+            errors.append("RAG_CHUNK_CHARS must be at least 100")
+
+        if self.rag_chunk_overlap < 0:
+            errors.append("RAG_CHUNK_OVERLAP cannot be negative")
+
+        if self.rag_chunk_overlap >= self.rag_chunk_chars:
+            errors.append(
+                "RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_CHARS"
+            )
+
+        if self.rag_timeout_seconds <= 0:
+            errors.append("RAG_TIMEOUT_SECONDS must be greater than 0")
+
+        if self.rag_max_upload_bytes < 1024:
+            errors.append(
+                "RAG_MAX_UPLOAD_BYTES must be at least 1024"
+            )
+
+        if self.rag_max_pdf_pages <= 0:
+            errors.append("RAG_MAX_PDF_PAGES must be greater than 0")
 
         if errors:
             raise RuntimeError(
