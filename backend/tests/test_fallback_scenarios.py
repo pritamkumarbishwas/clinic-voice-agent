@@ -1,9 +1,10 @@
-import asyncio
+﻿import asyncio
 import json
 
 import pytest
 
 import agent
+from app.agent import receptionist as receptionist_module
 from app.prompts.receptionist import PROMPT_VERSION, build_system_prompt
 from app.services.embedding_service import RagUnavailableError
 
@@ -286,7 +287,7 @@ def test_doctor_not_found_clears_selected_doctor(monkeypatch):
             "message": "Doctor is not available.",
         }
 
-    monkeypatch.setattr(agent, "db_check_availability", fake_availability)
+    monkeypatch.setattr(receptionist_module, "db_check_availability", fake_availability)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -331,7 +332,7 @@ def test_availability_exception_records_error_and_clears_slots(monkeypatch):
     async def fail_availability(date, doctor):
         raise TimeoutError("availability timed out")
 
-    monkeypatch.setattr(agent, "db_check_availability", fail_availability)
+    monkeypatch.setattr(receptionist_module, "db_check_availability", fail_availability)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -358,7 +359,7 @@ def test_booking_without_confirmation_does_not_call_database(monkeypatch):
         called = True
         return {"ok": True, "appointment_id": "appointment-1"}
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -387,7 +388,7 @@ def test_booking_success_confirms_state(monkeypatch):
             "start_at": "2026-10-29T10:00:00+05:30",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -415,7 +416,7 @@ def test_booking_failure_does_not_confirm(monkeypatch):
             "message": "Booking failed.",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -443,7 +444,7 @@ def test_slot_unavailable_clears_stale_slot(monkeypatch):
             "message": "That slot is no longer available.",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -472,7 +473,7 @@ def test_booking_rejects_slot_after_date_change(monkeypatch):
         called = True
         return {"ok": True, "appointment_id": "appointment-1"}
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
     receptionist.booking_state.update_details(date="2026-10-30")
 
@@ -498,7 +499,7 @@ def test_booking_exception_marks_failed_without_success(monkeypatch):
     async def fail_book(**kwargs):
         raise TimeoutError("booking timed out")
 
-    monkeypatch.setattr(agent, "db_book_appointment", fail_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fail_book)
     receptionist = _available_receptionist()
 
     result = json.loads(
@@ -538,7 +539,7 @@ def test_search_knowledge_success_returns_results(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(agent, "search_knowledge", fake_search)
+    monkeypatch.setattr(receptionist_module, "search_knowledge", fake_search)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -556,7 +557,7 @@ def test_search_knowledge_empty_result_uses_staff_confirmation(monkeypatch):
     async def fake_search(query):
         return []
 
-    monkeypatch.setattr(agent, "search_knowledge", fake_search)
+    monkeypatch.setattr(receptionist_module, "search_knowledge", fake_search)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -574,7 +575,7 @@ def test_search_knowledge_unavailable_uses_staff_confirmation(monkeypatch):
     async def fake_search(query):
         raise RagUnavailableError("not configured")
 
-    monkeypatch.setattr(agent, "search_knowledge", fake_search)
+    monkeypatch.setattr(receptionist_module, "search_knowledge", fake_search)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -592,7 +593,7 @@ def test_search_knowledge_exception_uses_staff_confirmation(monkeypatch):
     async def fake_search(query):
         raise RuntimeError("provider failed")
 
-    monkeypatch.setattr(agent, "search_knowledge", fake_search)
+    monkeypatch.setattr(receptionist_module, "search_knowledge", fake_search)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -637,7 +638,7 @@ def test_booking_uses_exact_returned_slot_id(monkeypatch):
             "start_at": "2026-10-29T10:00:00+05:30",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     asyncio.run(
@@ -663,7 +664,7 @@ def test_booking_failure_preserves_details_for_safe_retry(monkeypatch):
             "message": "Booking failed.",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _available_receptionist()
 
     asyncio.run(
@@ -690,3 +691,4 @@ def test_stt_repeat_prompt_asks_for_repeat():
 def test_llm_fallback_does_not_claim_success():
     assert "problem" in agent.LLM_FALLBACK_PROMPT
     assert "book" not in agent.LLM_FALLBACK_PROMPT.lower()
+

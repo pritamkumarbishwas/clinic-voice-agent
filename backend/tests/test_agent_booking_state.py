@@ -1,7 +1,8 @@
-import asyncio
+﻿import asyncio
 import json
 
 import agent
+from app.agent import receptionist as receptionist_module
 
 
 def _receptionist() -> agent.ClinicReceptionist:
@@ -82,7 +83,7 @@ def test_check_availability_tool_records_slots_and_doctor(monkeypatch):
             ],
         }
 
-    monkeypatch.setattr(agent, "db_check_availability", fake_check)
+    monkeypatch.setattr(receptionist_module, "db_check_availability", fake_check)
     receptionist = _receptionist()
 
     result = json.loads(
@@ -112,7 +113,7 @@ def test_book_appointment_tool_confirms_only_on_ok(monkeypatch):
             "start_at": "2026-10-29T10:00:00+05:30",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _receptionist()
     receptionist.booking_state.update_details(
         date="2026-10-29",
@@ -158,7 +159,7 @@ def test_book_appointment_tool_does_not_confirm_failed_slot(monkeypatch):
             "message": "That slot is no longer available.",
         }
 
-    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    monkeypatch.setattr(receptionist_module, "db_book_appointment", fake_book)
     receptionist = _receptionist()
     receptionist.booking_state.update_details(
         date="2026-10-29",
@@ -189,3 +190,4 @@ def test_book_appointment_tool_does_not_confirm_failed_slot(monkeypatch):
     assert receptionist.booking_state.is_confirmed is False
     assert receptionist.booking_state.selected_slot_id is None
     assert "Booking status: not booked" in result["session_state"]
+

@@ -2,6 +2,8 @@ import asyncio
 from types import SimpleNamespace
 
 import agent
+from app.agent import audio as audio_module
+from app.agent import worker as worker_module
 from livekit.agents import tts
 
 
@@ -128,9 +130,9 @@ def test_prewarm_loads_configured_silero_options(monkeypatch):
             captured.update(kwargs)
             return "vad-instance"
 
-    monkeypatch.setattr(agent.silero, "VAD", FakeVAD)
+    monkeypatch.setattr(worker_module.silero, "VAD", FakeVAD)
     monkeypatch.setattr(
-        agent,
+        worker_module,
         "settings",
         SimpleNamespace(
             validate=lambda: None,

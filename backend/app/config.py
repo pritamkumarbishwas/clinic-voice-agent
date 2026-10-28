@@ -80,6 +80,11 @@ def _timezone(name: str, default: str) -> ZoneInfo:
         return ZoneInfo(default)
 
 
+def _csv(name: str, default: str) -> tuple[str, ...]:
+    raw = _text(name, default)
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def sanitize_run_id(value: str | None) -> str | None:
     """Keep run identifiers safe for dispatch metadata and reporting."""
     if not isinstance(value, str):
@@ -101,6 +106,11 @@ class Settings:
     sarvam_api_key: str
     mongodb_uri: str
     mongodb_database: str
+    database_timeout_ms: int
+
+    app_env: str
+    cors_origins: tuple[str, ...]
+    trusted_hosts: tuple[str, ...]
 
     clinic_timezone: ZoneInfo
 
@@ -134,6 +144,11 @@ class Settings:
     interruption_min_duration: float
     preemptive_tts: bool
     session_max_unrecoverable_errors: int
+    availability_timeout_seconds: float
+    booking_timeout_seconds: float
+    stt_repeat_cooldown_seconds: float
+    agent_queue_max_size: int
+    call_max_duration_seconds: int
 
     analysis_model: str
     analysis_max_attempts: int
@@ -180,6 +195,14 @@ class Settings:
             mongodb_database=_text(
                 "MONGODB_DATABASE", "clinic_voice_ai"
             ),
+            database_timeout_ms=_int("DATABASE_TIMEOUT_MS", 5000),
+            app_env=_text("APP_ENV", "development").lower(),
+            cors_origins=_csv(
+                "CORS_ORIGINS",
+                "http://localhost:5173,http://127.0.0.1:5173,"
+                "http://localhost:4173,http://127.0.0.1:4173",
+            ),
+            trusted_hosts=_csv("TRUSTED_HOSTS", "*"),
             clinic_timezone=_timezone("CLINIC_TIMEZONE", "Asia/Kolkata"),
             stt_language=_text("STT_LANGUAGE", "hi-IN"),
             stt_stream_type=_text("STT_STREAM_TYPE", "balanced"),
@@ -223,6 +246,19 @@ class Settings:
             session_max_unrecoverable_errors=_int(
                 "SESSION_MAX_UNRECOVERABLE_ERRORS", 10
             ),
+            availability_timeout_seconds=_float(
+                "AVAILABILITY_TIMEOUT_SECONDS", 8.0
+            ),
+            booking_timeout_seconds=_float(
+                "BOOKING_TIMEOUT_SECONDS", 10.0
+            ),
+            stt_repeat_cooldown_seconds=_float(
+                "STT_REPEAT_COOLDOWN_SECONDS", 4.0
+            ),
+            agent_queue_max_size=_int("AGENT_QUEUE_MAX_SIZE", 1000),
+            call_max_duration_seconds=_int(
+                "CALL_MAX_DURATION_SECONDS", 1800
+            ),
             analysis_model=_text("ANALYSIS_MODEL", "sarvam-105b"),
             analysis_max_attempts=_int("ANALYSIS_MAX_ATTEMPTS", 3),
             analysis_poll_seconds=_float("ANALYSIS_POLL_SECONDS", 2.0),
@@ -230,7 +266,7 @@ class Settings:
                 "ANALYSIS_TIMEOUT_SECONDS", 20.0
             ),
             analysis_worker_enabled=_bool(
-                "ANALYSIS_WORKER_ENABLED", True
+                "ANALYSIS_WORKER_ENABLED", False
             ),
             analysis_transcript_chars=_int(
                 "ANALYSIS_TRANSCRIPT_CHARS", 6000
@@ -265,7 +301,7 @@ class Settings:
                 "SENTRY_ENVIRONMENT", "production"
             ),
             rate_limit_enabled=_bool("RATE_LIMIT_ENABLED", True),
-            trust_proxy_headers=_bool("TRUST_PROXY_HEADERS", True),
+            trust_proxy_headers=_bool("TRUST_PROXY_HEADERS", False),
         )
 
     def validate(self) -> None:
@@ -456,6 +492,55 @@ class Settings:
 
         if self.rag_max_pdf_pages <= 0:
             errors.append("RAG_MAX_PDF_PAGES must be greater than 0")
+
+        if self.database_timeout_ms < 1000:
+            errors.append("DATABASE_TIMEOUT_MS must be at least 1000")
+
+        if self.availability_timeout_seconds <= 0:
+            errors.append(
+                "AVAILABILITY_TIMEOUT_SECONDS must be greater than 0"
+            )
+
+        if self.booking_timeout_seconds <= 0:
+            errors.append("BOOKING_TIMEOUT_SECONDS must be greater than 0")
+
+        if self.stt_repeat_cooldown_seconds < 0:
+            errors.append(
+                "STT_REPEAT_COOLDOWN_SECONDS cannot be negative"
+            )
+
+        if self.agent_queue_max_size < 10:
+            errors.append("AGENT_QUEUE_MAX_SIZE must be at least 10")
+
+        if self.call_max_duration_seconds <= 0:
+            errors.append(
+                "CALL_MAX_DURATION_SECONDS must be greater than 0"
+            )
+
+        if self.app_env not in {"development", "test", "production"}:
+            errors.append(
+                "APP_ENV must be development, test, or production"
+            )
+
+        if not self.cors_origins:
+            errors.append("CORS_ORIGINS must contain at least one origin")
+
+        if self.app_env == "production":
+            if not self.cookie_secure:
+                errors.append(
+                    "COOKIE_SECURE must be true in production"
+                )
+            if "*" in self.trusted_hosts:
+                errors.append(
+                    "TRUSTED_HOSTS must list explicit hosts in production"
+                )
+            if any(
+                origin.startswith(("http://localhost", "http://127.0.0.1"))
+                for origin in self.cors_origins
+            ):
+                errors.append(
+                    "CORS_ORIGINS cannot contain localhost in production"
+                )
 
         if errors:
             raise RuntimeError(
