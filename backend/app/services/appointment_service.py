@@ -56,6 +56,7 @@ def _iso(value) -> str | None:
 def serialize_appointment(document: dict) -> dict:
     return {
         "appointment_id": str(document.get("_id", "")),
+        "reference": document.get("reference", ""),
         "name": document.get("name", ""),
         "phone": document.get("phone", ""),
         "doctor_name": document.get("doctor_name", ""),

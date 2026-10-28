@@ -65,6 +65,10 @@ backend/.venv/Scripts/python.exe scripts/ops/migrate_slot_indexes.py --apply
 The first command is a dry run. `--apply` deletes duplicate slots, keeps a
 booked slot when one exists, and creates `uniq_doctor_slot`.
 
+Startup also replaces the legacy all-status unique appointment slot index with
+a confirmed-only index. This lets a cancelled slot be rebooked while still
+preventing two confirmed appointments from sharing the same slot.
+
 ## 3. API service
 
 1. Install `backend/requirements.txt` in a Python environment.

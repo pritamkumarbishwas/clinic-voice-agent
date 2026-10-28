@@ -8,17 +8,28 @@ from app.config import settings
 from app.prompts.receptionist import build_system_prompt
 from app.services.booking_service import (
     CLINIC_TZ,
+    get_doctor_directory,
 )
 from app.services.booking_service import (
     book_appointment as db_book_appointment,
 )
 from app.services.booking_service import (
+    cancel_appointment as db_cancel_appointment,
+)
+from app.services.booking_service import (
     check_availability as db_check_availability,
+)
+from app.services.booking_service import (
+    get_appointment as db_get_appointment,
+)
+from app.services.booking_service import (
+    reschedule_appointment as db_reschedule_appointment,
 )
 from app.services.booking_session import (
     BookingSessionState,
     BookingStateLockedError,
 )
+from app.services.clinic_service import get_clinic_profile
 from app.services.embedding_service import RagUnavailableError
 from app.services.knowledge_service import search_knowledge
 
@@ -116,7 +127,9 @@ class ClinicReceptionist(Agent):
                     "code": "BOOKING_ALREADY_CONFIRMED",
                     "message": (
                         "The appointment is already confirmed. Do not collect "
-                        "or change booking details; refer changes to staff."
+                        "or change booking details. For a change, verify the "
+                        "reference and phone, then use reschedule_appointment "
+                        "or cancel_appointment."
                     ),
                 }
             )
@@ -148,6 +161,9 @@ class ClinicReceptionist(Agent):
     ) -> str:
         """Check real available appointment slots.
 
+        Use this for a new booking or to find a new slot for a same-doctor
+        reschedule.
+
         Args:
             date: Requested date in YYYY-MM-DD format.
             doctor: Doctor's name, for example Dr. Sharma.
@@ -155,16 +171,9 @@ class ClinicReceptionist(Agent):
         try:
             self.booking_state.update_details(date=date, doctor=doctor)
         except BookingStateLockedError:
-            return self._json_with_state(
-                {
-                    "ok": False,
-                    "code": "BOOKING_ALREADY_CONFIRMED",
-                    "message": (
-                        "The appointment is already confirmed. Do not check "
-                        "availability again; refer changes to staff."
-                    ),
-                }
-            )
+            # A confirmed booking is locked, but availability may still be
+            # checked for a same-doctor reschedule.
+            pass
         except ValueError as exc:
             return self._json_with_state(
                 {
@@ -261,7 +270,8 @@ class ClinicReceptionist(Agent):
                     "code": "BOOKING_ALREADY_CONFIRMED",
                     "message": (
                         "The appointment is already confirmed. Do not book "
-                        "again; refer changes to staff."
+                        "again. For a change, verify the reference and phone, "
+                        "then use reschedule_appointment or cancel_appointment."
                     ),
                 }
             )
@@ -292,6 +302,246 @@ class ClinicReceptionist(Agent):
                     ),
                 }
             )
+
+    @function_tool()
+    async def get_clinic_info(self, context: RunContext) -> str:
+        """Return verified clinic contact, hours, fee, services, and policies."""
+        try:
+            profile = await asyncio.wait_for(
+                get_clinic_profile(),
+                timeout=settings.availability_timeout_seconds,
+            )
+        except Exception:
+            logger.exception("Clinic info tool failed")
+            return json.dumps(
+                {
+                    "ok": False,
+                    "code": "CLINIC_INFO_ERROR",
+                    "message": (
+                        "Clinic details are unavailable. Say clinic staff "
+                        "will confirm. Do not invent details."
+                    ),
+                }
+            )
+
+        return json.dumps(
+            {
+                "ok": True,
+                "clinic": profile,
+                "message": (
+                    "Use only these verified details. If a value is empty or "
+                    "missing, say clinic staff will confirm."
+                ),
+            },
+            default=str,
+        )
+
+    @function_tool()
+    async def get_doctors(self, context: RunContext) -> str:
+        """Return the active doctor directory with names and specialties."""
+        try:
+            directory = await asyncio.wait_for(
+                get_doctor_directory(),
+                timeout=settings.availability_timeout_seconds,
+            )
+        except Exception:
+            logger.exception("Doctor directory tool failed")
+            return json.dumps(
+                {
+                    "ok": False,
+                    "code": "DOCTOR_DIRECTORY_ERROR",
+                    "message": (
+                        "The doctor list is unavailable. Say clinic staff "
+                        "will confirm. Do not invent a doctor."
+                    ),
+                }
+            )
+
+        return json.dumps(
+            {
+                "ok": True,
+                "doctors": directory,
+                "message": (
+                    "Use only these active doctors. If the list is empty, say "
+                    "clinic staff will confirm."
+                ),
+            },
+            default=str,
+        )
+
+    @function_tool()
+    async def get_appointment(
+        self,
+        context: RunContext,
+        reference: str,
+        phone: str,
+    ) -> str:
+        """Verify and retrieve one existing appointment.
+
+        Args:
+            reference: Booking reference such as CLN-ABC234.
+            phone: The phone number registered with the appointment.
+        """
+        if not (reference or "").strip() or not (phone or "").strip():
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "MISSING_LOOKUP_DETAILS",
+                    "message": (
+                        "Ask for both the booking reference and the registered "
+                        "phone number. Do not look up with only one."
+                    ),
+                }
+            )
+
+        try:
+            result = await asyncio.wait_for(
+                db_get_appointment(reference=reference, phone=phone),
+                timeout=settings.booking_timeout_seconds,
+            )
+        except Exception:
+            logger.exception("Appointment lookup tool failed")
+            result = {
+                "ok": False,
+                "code": "APPOINTMENT_ERROR",
+                "message": (
+                    "Appointment could not be verified. Do not claim success "
+                    "or reveal whether a reference exists."
+                ),
+            }
+
+        self.booking_state.record_appointment_lookup(result)
+        return self._json_with_state(result)
+
+    @function_tool()
+    async def cancel_appointment(
+        self,
+        context: RunContext,
+        reference: str,
+        phone: str,
+        confirmed: bool,
+    ) -> str:
+        """Cancel a future confirmed appointment after explicit confirmation.
+
+        Args:
+            reference: Booking reference such as CLN-ABC234.
+            phone: The phone number registered with the appointment.
+            confirmed: True only after the caller explicitly agrees to cancel
+                after hearing the verified appointment details.
+        """
+        if confirmed is not True:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "CONFIRMATION_REQUIRED",
+                    "message": (
+                        "Cancellation not attempted. Verify the appointment "
+                        "and ask the caller to confirm cancellation first."
+                    ),
+                }
+            )
+        if not (reference or "").strip() or not (phone or "").strip():
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "MISSING_LOOKUP_DETAILS",
+                    "message": (
+                        "Ask for both the booking reference and the registered "
+                        "phone number before cancelling."
+                    ),
+                }
+            )
+
+        try:
+            result = await asyncio.wait_for(
+                db_cancel_appointment(
+                    reference=reference,
+                    phone=phone,
+                    call_id=self.call_id,
+                ),
+                timeout=settings.booking_timeout_seconds,
+            )
+        except Exception:
+            logger.exception("Cancellation tool failed")
+            result = {
+                "ok": False,
+                "code": "APPOINTMENT_ERROR",
+                "message": (
+                    "Cancellation could not be verified. Do not claim success."
+                ),
+            }
+
+        self.booking_state.record_cancellation(result)
+        return self._json_with_state(result)
+
+    @function_tool()
+    async def reschedule_appointment(
+        self,
+        context: RunContext,
+        reference: str,
+        phone: str,
+        new_slot_id: str,
+        confirmed: bool,
+    ) -> str:
+        """Move a future confirmed appointment to a new slot for the same doctor.
+
+        Args:
+            reference: Booking reference such as CLN-ABC234.
+            phone: The phone number registered with the appointment.
+            new_slot_id: Exact slot_id returned by check_availability for the
+                same doctor.
+            confirmed: True only after the caller explicitly agrees to the new
+                date and time.
+        """
+        if confirmed is not True:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "CONFIRMATION_REQUIRED",
+                    "message": (
+                        "Reschedule not attempted. Verify the appointment, "
+                        "check the new slot, and ask the caller to confirm."
+                    ),
+                }
+            )
+        if (
+            not (reference or "").strip()
+            or not (phone or "").strip()
+            or not (new_slot_id or "").strip()
+        ):
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "MISSING_RESCHEDULE_DETAILS",
+                    "message": (
+                        "Ask for the booking reference, registered phone, and "
+                        "a new slot from check_availability before rescheduling."
+                    ),
+                }
+            )
+
+        try:
+            result = await asyncio.wait_for(
+                db_reschedule_appointment(
+                    reference=reference,
+                    phone=phone,
+                    new_slot_id=new_slot_id,
+                    call_id=self.call_id,
+                ),
+                timeout=settings.booking_timeout_seconds,
+            )
+        except Exception:
+            logger.exception("Reschedule tool failed")
+            result = {
+                "ok": False,
+                "code": "APPOINTMENT_ERROR",
+                "message": (
+                    "Reschedule could not be verified. Do not claim success."
+                ),
+            }
+
+        self.booking_state.record_reschedule(result)
+        return self._json_with_state(result)
 
     @function_tool()
     async def search_clinic_knowledge(

@@ -273,7 +273,7 @@ export default function Appointments() {
                         {appointment.name}
                       </p>
                       <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                        {appointment.appointment_id}
+                        {appointment.reference || appointment.appointment_id}
                       </p>
                     </TableCell>
                     <TableCell>
@@ -327,6 +327,9 @@ export default function Appointments() {
 
                 <div className="mt-3 space-y-1.5 border-t pt-3 text-xs text-muted-foreground">
                   <p>{formatDateTime(appointment.start_at)}</p>
+                  <p className="font-mono text-[10px]">
+                    {appointment.reference || appointment.appointment_id}
+                  </p>
                   <a
                     href={`tel:${appointment.phone}`}
                     className="inline-flex items-center gap-1.5 text-primary"

@@ -293,3 +293,110 @@ def test_booking_failure_keeps_details_for_safe_retry():
     assert state.booking_status == "failed"
     assert state.selected_slot_id == "slot-1"
     assert "not confirmed" in state.prompt_summary()
+
+def test_booking_records_reference_and_status():
+    state = BookingSessionState()
+    state.update_details(date="2026-10-29", doctor="Dr. Sharma")
+    state.record_booking_attempt(
+        name="Priya Sharma",
+        phone="9876543210",
+        slot_id="slot-1",
+    )
+
+    state.record_booking(
+        {
+            "ok": True,
+            "appointment_id": "appointment-1",
+            "reference": "CLN-ABC234",
+            "doctor": "Dr. Sharma",
+            "start_at": "2026-10-29T10:00:00+05:30",
+        }
+    )
+
+    assert state.appointment_reference == "CLN-ABC234"
+    assert state.appointment_status == "confirmed"
+    assert "Appointment reference: CLN-ABC234" in state.prompt_summary()
+
+
+def test_lookup_does_not_confirm_a_new_booking():
+    state = BookingSessionState()
+
+    state.record_appointment_lookup(
+        {
+            "ok": True,
+            "reference": "CLN-ABC234",
+            "status": "confirmed",
+            "doctor": "Dr. Sharma",
+            "start_at": "2026-10-29T10:00:00+05:30",
+        }
+    )
+
+    assert state.appointment_reference == "CLN-ABC234"
+    assert state.appointment_status == "confirmed"
+    assert state.is_confirmed is False
+    assert "This reference belongs to an existing appointment" in (
+        state.prompt_summary()
+    )
+
+
+def test_cancellation_unlocks_state_and_marks_cancelled():
+    state = BookingSessionState()
+    state.update_details(date="2026-10-29", doctor="Dr. Sharma")
+    state.record_booking_attempt(
+        name="Priya Sharma",
+        phone="9876543210",
+        slot_id="slot-1",
+    )
+    state.record_booking(
+        {
+            "ok": True,
+            "appointment_id": "appointment-1",
+            "reference": "CLN-ABC234",
+            "doctor": "Dr. Sharma",
+            "start_at": "2026-10-29T10:00:00+05:30",
+        }
+    )
+
+    state.record_cancellation(
+        {"ok": True, "reference": "CLN-ABC234", "status": "cancelled"}
+    )
+
+    assert state.is_confirmed is False
+    assert state.booking_status == "cancelled"
+    assert state.appointment_status == "cancelled"
+    assert "Booking status: cancelled" in state.prompt_summary()
+
+
+def test_reschedule_updates_confirmed_appointment():
+    state = BookingSessionState()
+    state.update_details(date="2026-10-29", doctor="Dr. Sharma")
+    state.record_booking_attempt(
+        name="Priya Sharma",
+        phone="9876543210",
+        slot_id="slot-1",
+    )
+    state.record_booking(
+        {
+            "ok": True,
+            "appointment_id": "appointment-1",
+            "reference": "CLN-ABC234",
+            "doctor": "Dr. Sharma",
+            "start_at": "2026-10-29T10:00:00+05:30",
+        }
+    )
+
+    state.record_reschedule(
+        {
+            "ok": True,
+            "reference": "CLN-ABC234",
+            "status": "confirmed",
+            "doctor": "Dr. Sharma",
+            "name": "Priya Sharma",
+            "start_at": "2026-10-30T11:00:00+05:30",
+        }
+    )
+
+    assert state.is_confirmed
+    assert state.requested_date == "2026-10-30"
+    assert state.selected_time == "11:00 AM"
+    assert "Booking status: confirmed" in state.prompt_summary()

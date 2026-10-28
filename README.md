@@ -2,8 +2,9 @@
 
 Real-time Hindi/Hinglish phone receptionist for a small clinic. A caller talks
 to a LiveKit agent, the agent answers verified clinic questions, checks doctor
-availability, books appointments, and every call is stored for analysis and
-latency benchmarking. Cancellation and rescheduling are handled by clinic staff.
+availability, books appointments, and looks up, cancels, or reschedules an
+appointment after verifying the booking reference and registered phone. Every
+call is stored for analysis and latency benchmarking.
 
 The project has two surfaces:
 
@@ -43,9 +44,11 @@ The receptionist rules live in `backend/app/prompts/receptionist.py`. The
 prompt is built at call time from the MongoDB clinic profile and active doctor
 roster, so edits in `/admin/clinic` apply to the next call. It is Hindi/Hinglish
 only, answers verified clinic questions, checks availability, and books
-appointments. Cancellation, rescheduling, insurance, billing, reports, records,
-complaints, and human-support requests are referred to the configured clinic
-phone; the assistant does not promise callbacks or transfers. It asks callers to
+appointments. It can also look up, cancel, or reschedule a future confirmed
+appointment when the caller provides both the booking reference and registered
+phone. Insurance, billing, reports, records, complaints, and human-support
+requests are referred to the configured clinic phone; the assistant does not
+promise callbacks or transfers. It asks callers to
 repeat unclear speech, says staff will confirm missing clinic information,
 refuses diagnosis or medicine requests, and never treats a failed or unverified
 tool result as a successful booking. The prompt version is stored in
@@ -193,14 +196,16 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 - `users`: admin accounts with Argon2 password hashes and roles
 - `clinic`: single clinic profile used by the agent prompt
 - `calls`: one document per call with `run_id`, transcript, summary, analysis
-  fields, booking outcome, `tool_calls`, `barge_in_count`, `speech_count`,
-  `stt_error_count`, `stt_timeout_count`, `empty_transcript_count`,
+  fields, booking outcome, `appointment_reference`, `tool_calls`,
+  `barge_in_count`, `speech_count`, `stt_error_count`, `stt_timeout_count`,
+  `empty_transcript_count`,
   `llm_error_count`, `tts_error_count`
 - `call_turns`: one document per transcript turn with stage latencies
   (`endpoint_latency_ms`, `stt_latency_ms`, `llm_latency_ms`,
   `tts_latency_ms`, `end_to_audio_ms`, `playback_latency_ms`)
 - `benchmark_runs`: one document per benchmark run with call counts and status
-- `slots` / `appointments` / `doctors`: clinic booking state
+- `slots` / `appointments` / `doctors`: clinic booking state. Appointments store
+  a patient-facing `CLN-XXXXXX` reference; the internal `_id` stays private.
 
 ## API
 

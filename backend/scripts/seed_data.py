@@ -16,7 +16,7 @@ from app.database import (
     initialize_database,
     slots,
 )
-from app.services.booking_service import CLINIC_TZ
+from app.services.booking_service import CLINIC_TZ, generate_booking_reference
 
 DOCTORS = (
     {"name": "Dr. Sharma", "specialty": "General Physician", "active": True},
@@ -144,6 +144,7 @@ async def _seed_booked_slot(now: datetime) -> None:
     await appointments.insert_one(
         {
             "_id": appointment_id,
+            "reference": generate_booking_reference(),
             "slot_id": test_slot["_id"],
             "doctor_id": test_doctor["_id"],
             "doctor_name": test_doctor["name"],

@@ -350,8 +350,8 @@ function ClinicProfileForm({ initialProfile }) {
           <CardHeader>
             <CardTitle className="text-base">Policies</CardTitle>
             <CardDescription>
-              These are informational. The receptionist cannot cancel or
-              change appointments.
+              These are informational. The receptionist can cancel or reschedule
+              only after verifying the booking reference and registered phone.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -384,7 +384,7 @@ function ClinicProfileForm({ initialProfile }) {
                 maxLength={1000}
                 rows={3}
                 className={TEXTAREA_CLASS}
-                placeholder="Inform clinic staff at least 24 hours before cancelling."
+                placeholder="Please cancel at least 24 hours before the appointment."
               />
             </div>
           </CardContent>

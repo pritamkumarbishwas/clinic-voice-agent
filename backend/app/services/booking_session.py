@@ -9,6 +9,7 @@ _STATUS_CONFIRMED = "confirmed"
 _STATUS_NOT_BOOKED = "not_booked"
 _STATUS_SUBMITTING = "submitting"
 _STATUS_FAILED = "failed"
+_STATUS_CANCELLED = "cancelled"
 _AVAILABILITY_NOT_CHECKED = "not_checked"
 _AVAILABILITY_AVAILABLE = "available"
 _AVAILABILITY_UNAVAILABLE = "unavailable"
@@ -72,6 +73,8 @@ class BookingSessionState:
     phone: str | None = None
     booking_status: str = _STATUS_NOT_BOOKED
     appointment_id: str | None = None
+    appointment_reference: str | None = None
+    appointment_status: str | None = None
     booked_start_at: str | None = None
     last_error_code: str | None = None
 
@@ -234,9 +237,11 @@ class BookingSessionState:
             self.booking_status = _STATUS_CONFIRMED
             self.last_error_code = None
             self.appointment_id = appointment_id
-            booked_start = _clean_detail(result.get("start_at"), 80)
-            if booked_start:
-                self.booked_start_at = booked_start
+            reference = _clean_detail(result.get("reference"), 40)
+            if reference:
+                self.appointment_reference = reference
+            self.appointment_status = "confirmed"
+            self._record_appointment_start(result)
             canonical_doctor = _clean_detail(result.get("doctor"))
             if canonical_doctor:
                 self.doctor = canonical_doctor
@@ -268,6 +273,78 @@ class BookingSessionState:
         self.booking_status = _STATUS_FAILED
         self.last_error_code = "BOOKING_ERROR"
 
+    def _record_appointment_start(
+        self,
+        result: dict,
+        *,
+        update_booking_fields: bool = True,
+    ) -> None:
+        start_at = _clean_detail(result.get("start_at"), 80)
+        if start_at:
+            self.booked_start_at = start_at
+            try:
+                parsed = datetime.fromisoformat(start_at)
+            except ValueError:
+                parsed = None
+            if parsed is not None and update_booking_fields:
+                self.requested_date = parsed.date().isoformat()
+                self.selected_time = parsed.strftime("%I:%M %p").lstrip("0")
+
+    def record_appointment_lookup(self, result: dict) -> None:
+        """Remember a verified appointment without treating it as a new booking."""
+        if not result.get("ok"):
+            return
+        reference = _clean_detail(result.get("reference"), 40)
+        if reference:
+            self.appointment_reference = reference
+        status = _clean_detail(result.get("status"), 30)
+        if status:
+            self.appointment_status = status
+        self._record_appointment_start(
+            result,
+            update_booking_fields=False,
+        )
+
+    def record_cancellation(self, result: dict) -> None:
+        """Record a verified cancellation and release the booking lock."""
+        if not result.get("ok"):
+            return
+        reference = _clean_detail(result.get("reference"), 40)
+        if reference:
+            self.appointment_reference = reference
+        self.appointment_status = "cancelled"
+        self.booking_status = _STATUS_CANCELLED
+        self.availability_status = _AVAILABILITY_NOT_CHECKED
+        self.available_slots = []
+        self.selected_slot_id = None
+        self.selected_time = None
+        self.last_error_code = None
+
+    def record_reschedule(self, result: dict) -> None:
+        """Record a verified reschedule as the current confirmed booking."""
+        if not result.get("ok"):
+            return
+        reference = _clean_detail(result.get("reference"), 40)
+        if reference:
+            self.appointment_reference = reference
+        self.appointment_status = "confirmed"
+        self.booking_status = _STATUS_CONFIRMED
+        self.availability_status = _AVAILABILITY_NOT_CHECKED
+        self.available_slots = []
+        self.selected_slot_id = None
+        self.selected_time = None
+        self.last_error_code = None
+        appointment_id = _clean_detail(result.get("appointment_id"), 80)
+        if appointment_id:
+            self.appointment_id = appointment_id
+        canonical_doctor = _clean_detail(result.get("doctor"))
+        if canonical_doctor:
+            self.doctor = canonical_doctor
+        canonical_name = _clean_detail(result.get("name"))
+        if canonical_name:
+            self.patient_name = canonical_name
+        self._record_appointment_start(result)
+
     def _captured_fields(self) -> list[str]:
         captured = []
         if self.requested_date:
@@ -290,6 +367,7 @@ class BookingSessionState:
             and self.booking_status == _STATUS_NOT_BOOKED
             and self.availability_status == _AVAILABILITY_NOT_CHECKED
             and not self.last_error_code
+            and not self.appointment_reference
         ):
             return (
                 "SESSION BOOKING STATE\n"
@@ -327,11 +405,19 @@ class BookingSessionState:
             lines.append(f"- Patient name: {self.patient_name}")
         if self.phone:
             lines.append(f"- Phone: {self.phone}")
+        if self.appointment_reference:
+            lines.append(
+                f"- Appointment reference: {self.appointment_reference}"
+            )
+        if self.appointment_status:
+            lines.append(f"- Appointment status: {self.appointment_status}")
 
         if self.booking_status == _STATUS_CONFIRMED:
             booked_at = _format_start(self.booked_start_at)
             detail = f" at {booked_at}" if booked_at else ""
             lines.append(f"- Booking status: confirmed{detail}")
+        elif self.booking_status == _STATUS_CANCELLED:
+            lines.append("- Booking status: cancelled")
         elif self.booking_status == _STATUS_FAILED:
             lines.append(
                 "- Booking status: not confirmed because the booking attempt failed"
@@ -349,7 +435,23 @@ class BookingSessionState:
         if self.is_confirmed:
             lines.append(
                 "- Do not collect booking details again or call the booking tool. "
-                "Refer any change or cancellation to clinic staff."
+                "For a change, verify the reference and phone, check availability "
+                "for the same doctor, then use reschedule_appointment or "
+                "cancel_appointment."
+            )
+        if self.booking_status == _STATUS_CANCELLED:
+            lines.append(
+                "- The existing appointment is cancelled. Do not claim it is "
+                "still booked; offer a new booking only if the caller asks."
+            )
+        if (
+            self.appointment_reference
+            and not self.is_confirmed
+            and self.appointment_status == "confirmed"
+        ):
+            lines.append(
+                "- This reference belongs to an existing appointment, not to a "
+                "new booking. Do not treat it as a confirmed new booking."
             )
         lines.append(
             "- Use the conversation plus this state. If the caller corrects a "

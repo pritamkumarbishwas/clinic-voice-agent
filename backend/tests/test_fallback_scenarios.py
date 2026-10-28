@@ -84,7 +84,7 @@ def test_prompt_contains_fallback_policy(expected):
 
 
 def test_prompt_version_tracks_error_fallback_phase():
-    assert PROMPT_VERSION == "phase4-error-fallback-v1"
+    assert PROMPT_VERSION == "phase5-appointment-management-v1"
 
 
 def test_prompt_handles_missing_phone_without_inventing():
@@ -207,7 +207,18 @@ def test_confirmed_booking_locks_detail_changes():
     assert receptionist.booking_state.requested_date == TODAY
 
 
-def test_confirmed_booking_blocks_availability_check():
+def test_confirmed_booking_allows_availability_check_for_reschedule(
+    monkeypatch,
+):
+    async def fake_check(date, doctor):
+        return {
+            "ok": True,
+            "doctor": "Dr. Sharma",
+            "date": date,
+            "slots": [{"slot_id": "slot-2", "local_time": "11:00 AM"}],
+        }
+
+    monkeypatch.setattr(receptionist_module, "db_check_availability", fake_check)
     receptionist = _available_receptionist()
     receptionist.booking_state.record_booking(
         {
@@ -228,8 +239,10 @@ def test_confirmed_booking_blocks_availability_check():
         )
     )
 
-    assert result["ok"] is False
-    assert result["code"] == "BOOKING_ALREADY_CONFIRMED"
+    assert result["ok"] is True
+    assert result["slots"][0]["slot_id"] == "slot-2"
+    assert receptionist.booking_state.is_confirmed
+    assert receptionist.booking_state.requested_date == TODAY
 
 
 def test_confirmed_booking_blocks_rebooking():

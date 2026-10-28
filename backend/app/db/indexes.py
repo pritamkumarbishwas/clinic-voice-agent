@@ -16,6 +16,39 @@ from app.db.mongo import (
 
 logger = logging.getLogger("clinic-indexes")
 
+APPOINTMENT_SLOT_INDEX = "uniq_confirmed_appointment_slot"
+
+
+async def _ensure_appointment_slot_index() -> None:
+    """Allow cancelled appointments to stop occupying the unique slot index."""
+    existing = await appointments.index_information()
+    for name, info in existing.items():
+        if list(info.get("key", [])) != [("slot_id", ASCENDING)]:
+            continue
+        if not info.get("unique"):
+            continue
+        if info.get("partialFilterExpression") == {"status": "confirmed"}:
+            continue
+        await appointments.drop_index(name)
+        logger.warning(
+            "Dropped legacy unique appointment slot index %s; "
+            "replacing it with a confirmed-only unique index.",
+            name,
+        )
+
+    try:
+        await appointments.create_index(
+            [("slot_id", ASCENDING)],
+            unique=True,
+            partialFilterExpression={"status": "confirmed"},
+            name=APPOINTMENT_SLOT_INDEX,
+        )
+    except (DuplicateKeyError, OperationFailure):
+        logger.warning(
+            "Could not create the confirmed-only appointment slot index. "
+            "Check for duplicate confirmed appointments before restarting."
+        )
+
 
 async def create_indexes() -> None:
     """Create idempotent indexes for the API and agent worker."""
@@ -49,7 +82,13 @@ async def create_indexes() -> None:
             name="doctor_id_1_start_at_1",
         )
 
-    await appointments.create_index([("slot_id", ASCENDING)], unique=True)
+    await _ensure_appointment_slot_index()
+    await appointments.create_index(
+        [("reference", ASCENDING)],
+        unique=True,
+        sparse=True,
+        name="uniq_appointment_reference",
+    )
     await appointments.create_index([("call_id", ASCENDING)])
     await appointments.create_index([("created_at", DESCENDING)])
     await appointments.create_index([("start_at", ASCENDING)])

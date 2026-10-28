@@ -58,11 +58,13 @@ def test_prompt_limits_actions_and_refers_to_staff():
     prompt = _prompt()
 
     assert (
-        "save_booking_details, check_availability, book_appointment, and "
-        "search_clinic_knowledge"
+        "save_booking_details, check_availability, book_appointment, "
+        "get_clinic_info, get_doctors, get_appointment, cancel_appointment, "
+        "reschedule_appointment, and search_clinic_knowledge"
         in prompt
     )
-    assert "Do not cancel, reschedule, or modify existing appointments." in prompt
+    assert "You may look up, cancel, or reschedule" in prompt
+    assert "Do not modify any other appointment details." in prompt
     assert "refer the caller to clinic staff" in prompt
     assert "Never promise a transfer, callback, or staff availability." in prompt
 
@@ -110,6 +112,19 @@ def test_prompt_keeps_booking_safety():
     assert "exact slot_id" in prompt
     assert "If no slots are available" in prompt
     assert "only asks about availability" in prompt
+
+
+def test_prompt_requires_verified_lookup_and_confirmation_for_changes():
+    prompt = _prompt()
+
+    assert "APPOINTMENT LOOKUP, CANCELLATION, AND RESCHEDULE" in prompt
+    assert "booking reference and registered phone number" in prompt
+    assert "Do not say whether the reference or phone exists" in prompt
+    assert "Read the verified booking reference once" in prompt
+    assert "pass confirmed=True only after a clear yes" in prompt
+    assert "same doctor" in prompt
+    assert "Never claim cancellation or reschedule succeeded" in prompt
+    assert "internal appointment IDs, call IDs" in prompt
 
 
 def test_prompt_prevents_repeating_captured_booking_details():
@@ -171,4 +186,4 @@ def test_prompt_handles_unconfigured_clinic_without_inventing():
 
 
 def test_prompt_version_is_exported():
-    assert PROMPT_VERSION == "phase4-error-fallback-v1"
+    assert PROMPT_VERSION == "phase5-appointment-management-v1"
