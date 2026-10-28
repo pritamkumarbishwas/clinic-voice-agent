@@ -20,15 +20,16 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api-error";
 import {
@@ -99,26 +100,16 @@ function DoctorForm({ initial, onCancel, onSaved }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">
-          {isEditing ? "Edit doctor" : "Add a doctor"}
-        </CardTitle>
-        <CardDescription>
-          The receptionist only offers doctors who are active and scheduled.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && (
-            <Alert variant="destructive">
-              <TriangleAlert />
-              <AlertTitle>Could not save doctor</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {error && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>Could not save doctor</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="doctor-name">Name</Label>
               <Input
@@ -267,10 +258,8 @@ function DoctorForm({ initial, onCancel, onSaved }) {
                   ? "Save doctor"
                   : "Add doctor"}
             </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      </div>
+    </form>
   );
 }
 
@@ -405,10 +394,44 @@ export default function Doctors() {
 
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <Badge variant="success">{activeCount} active</Badge>
+        <Badge variant="secondary">{inactiveCount} inactive</Badge>
         <span>
           {doctors.length} doctor{doctors.length === 1 ? "" : "s"} total
         </span>
       </div>
+
+      {doctors.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-2xl border border-border/80 bg-card p-2 shadow-xs sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search doctors, specialties, or languages"
+              className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+              aria-label="Search doctors"
+            />
+          </div>
+          <div className="flex shrink-0 gap-1 rounded-xl bg-muted p-1">
+            {[
+              ["all", "All"],
+              ["active", "Active"],
+              ["inactive", "Inactive"],
+            ].map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={statusFilter === value ? "default" : "ghost"}
+                onClick={() => setStatusFilter(value)}
+                className="h-7 flex-1 sm:flex-none"
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {pendingDeactivate && (
         <Alert variant="destructive">
@@ -462,12 +485,32 @@ export default function Doctors() {
       )}
 
       {formState && (
-        <DoctorForm
-          key={formState.doctor_id || "new"}
-          initial={formState}
-          onCancel={() => setFormState(null)}
-          onSaved={() => setFormState(null)}
-        />
+        <Sheet
+          open
+          onOpenChange={(open) => {
+            if (!open) setFormState(null);
+          }}
+        >
+          <SheetContent className="sm:max-w-xl">
+            <SheetHeader>
+              <SheetTitle>
+                {formState.doctor_id ? "Edit doctor" : "Add a doctor"}
+              </SheetTitle>
+              <SheetDescription>
+                The receptionist only offers doctors who are active and
+                scheduled. Bio text is searchable by the knowledge assistant.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              <DoctorForm
+                key={formState.doctor_id || "new"}
+                initial={formState}
+                onCancel={() => setFormState(null)}
+                onSaved={() => setFormState(null)}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
 
       {loadError && (
@@ -512,9 +555,28 @@ export default function Doctors() {
             </Button>
           }
         />
+      ) : filteredDoctors.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="No matching doctors"
+          description="Try a different name, specialty, or status filter."
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setQuery("");
+                setStatusFilter("all");
+              }}
+            >
+              Clear filters
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-3">
-          {doctors.map((doctor) => (
+          {filteredDoctors.map((doctor) => (
             <Card key={doctor.doctor_id}>
               <CardContent className="flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 space-y-1.5">

@@ -34,6 +34,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tabs,
@@ -124,18 +131,7 @@ function KnowledgeForm({ initial, available, onCancel, onSaved }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">
-          {isEditing ? "Edit knowledge entry" : "New knowledge entry"}
-        </CardTitle>
-        <CardDescription>
-          Use this for longer clinic FAQs that are not part of the structured
-          clinic profile.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <Alert variant="destructive">
               <TriangleAlert />
@@ -225,10 +221,8 @@ function KnowledgeForm({ initial, available, onCancel, onSaved }) {
                   ? "Save entry"
                   : "Add entry"}
             </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      </div>
+    </form>
   );
 }
 
@@ -593,16 +587,6 @@ export default function Knowledge() {
         </TabsList>
 
         <TabsContent value="entries" className="space-y-5">
-          {formState && (
-            <KnowledgeForm
-              key={formState.knowledge_id || "new"}
-              initial={formState}
-              available={available}
-              onCancel={() => setFormState(null)}
-              onSaved={() => setFormState(null)}
-            />
-          )}
-
           {pendingDelete && (
         <Alert variant="destructive">
           <TriangleAlert />
@@ -746,6 +730,38 @@ export default function Knowledge() {
           <SearchCard available={available} />
         </TabsContent>
       </Tabs>
+
+      {formState && (
+        <Sheet
+          open
+          onOpenChange={(open) => {
+            if (!open) setFormState(null);
+          }}
+        >
+          <SheetContent className="sm:max-w-2xl">
+            <SheetHeader>
+              <SheetTitle>
+                {formState.knowledge_id
+                  ? "Edit knowledge entry"
+                  : "New knowledge entry"}
+              </SheetTitle>
+              <SheetDescription>
+                Use this for longer clinic FAQs that are not part of the
+                structured clinic profile. Saving creates a searchable index.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+              <KnowledgeForm
+                key={formState.knowledge_id || "new"}
+                initial={formState}
+                available={available}
+                onCancel={() => setFormState(null)}
+                onSaved={() => setFormState(null)}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 }

@@ -43,6 +43,14 @@ function cleanText(value) {
   return `${value ?? ""}`.trim().replace(/\s+/g, " ");
 }
 
+function cleanWebsite(value) {
+  const cleaned = cleanText(value);
+  if (!cleaned || /^https?:\/\//i.test(cleaned)) {
+    return cleaned;
+  }
+  return `https://${cleaned}`;
+}
+
 export function cleanClinicProfile(profile) {
   return {
     ...profile,
@@ -50,7 +58,7 @@ export function cleanClinicProfile(profile) {
     address: cleanText(profile?.address),
     phone: cleanText(profile?.phone),
     email: cleanText(profile?.email).toLowerCase(),
-    website: cleanText(profile?.website),
+    website: cleanWebsite(profile?.website),
     hours: {
       open: profile?.hours?.open ?? "10:00",
       close: profile?.hours?.close ?? "17:00",

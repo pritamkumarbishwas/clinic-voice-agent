@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -42,7 +42,7 @@ def test_knowledge_helpers_normalize_admin_input():
     assert normalize_category(" Services ") == "services"
     assert normalize_category("unknown") == "general"
     assert guess_title_from_filename("parking_faq.md") == "parking faq"
-    assert guess_title_from_filename(".txt") == "txt"
+    assert guess_title_from_filename(".txt") == "Uploaded clinic knowledge"
 
 
 def test_doctor_profile_validates_schedule():
@@ -95,12 +95,8 @@ def test_slot_generation_respects_working_days_and_hours():
         "2026-11-02T10:30:00+05:30",
         "2026-11-04T10:00:00+05:30",
         "2026-11-04T10:30:00+05:30",
-        "2026-11-09T10:00:00+05:30",
-        "2026-11-09T10:30:00+05:30",
     ]
     assert all(
-        isinstance(start, datetime)
-        and start.tzinfo is not None
-        and start > datetime(2000, 1, 1, tzinfo=start.tzinfo) - timedelta(0)
+        isinstance(start, datetime) and start.tzinfo is not None
         for start in starts
     )

@@ -24,6 +24,12 @@ function AppShell({ healthStatus, onCheckHealth, children }) {
 
   return (
     <div className="min-h-screen bg-background surface-glow">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
       <Sidebar />
 
       <div className="lg:pl-72">
@@ -59,7 +65,10 @@ function AppShell({ healthStatus, onCheckHealth, children }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl px-4 pt-6 pb-28 sm:px-6 sm:pt-8 lg:px-8 lg:pb-10">
+        <main
+          id="main-content"
+          className="mx-auto w-full max-w-7xl px-4 pt-6 pb-28 sm:px-6 sm:pt-8 lg:px-8 lg:pb-10"
+        >
           {children}
         </main>
       </div>

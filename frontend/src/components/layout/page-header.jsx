@@ -17,8 +17,8 @@ function PageHeader({
     >
       <div className="flex min-w-0 items-start gap-4">
         {Icon && (
-          <div className="hidden size-12 shrink-0 place-items-center rounded-2xl border border-primary/15 bg-primary/8 text-primary shadow-xs sm:grid">
-            <Icon className="size-5.5" />
+          <div className="grid size-10 shrink-0 place-items-center rounded-2xl border border-primary/15 bg-primary/8 text-primary shadow-xs sm:size-12">
+            <Icon className="size-5 sm:size-5.5" />
           </div>
         )}
         <div className="min-w-0">

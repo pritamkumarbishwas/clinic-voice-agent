@@ -4,5 +4,7 @@ export * from "./appointments";
 export * from "./auth";
 export * from "./calls";
 export * from "./clinic";
+export * from "./doctors";
 export * from "./health";
+export * from "./knowledge";
 export * from "./live";

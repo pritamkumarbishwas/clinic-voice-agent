@@ -234,6 +234,14 @@
   .animate-fade-up {
     animation: fade-up 0.35s ease-out both;
   }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes live-ring {

@@ -30,6 +30,8 @@ test("cleanClinicProfile drops empty rows and normalizes text", () => {
   const profile = cleanClinicProfile({
     name: "  Sunrise   Clinic ",
     email: " HELLO@EXAMPLE.COM ",
+    website: " clinic.example ",
+    consultation_fee: "",
     hours: { open: "10:00", close: "17:00", days: "  Monday   to Saturday " },
     services: [
       { name: "", fee: "", description: "" },
@@ -43,6 +45,7 @@ test("cleanClinicProfile drops empty rows and normalizes text", () => {
 
   assert.equal(profile.name, "Sunrise Clinic");
   assert.equal(profile.email, "hello@example.com");
+  assert.equal(profile.website, "https://clinic.example");
   assert.equal(profile.hours.days, "Monday to Saturday");
   assert.deepEqual(profile.services, [
     { name: "Dental check-up", fee: "700", description: "Cleaning" },

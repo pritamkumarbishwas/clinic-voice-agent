@@ -44,6 +44,7 @@ function ClinicProfileForm({ initialProfile }) {
   const [saveError, setSaveError] = useState("");
   const [updateClinic, { isLoading: saving }] =
     useUpdateClinicMutation();
+  const isDirty = JSON.stringify(profile) !== JSON.stringify(savedProfile);
 
   function setField(field, value) {
     setProfile((previous) => ({ ...previous, [field]: value }));
@@ -206,7 +207,8 @@ function ClinicProfileForm({ initialProfile }) {
                 <Label htmlFor="clinic-website">Website</Label>
                 <Input
                   id="clinic-website"
-                  type="url"
+                  type="text"
+                  inputMode="url"
                   value={profile.website}
                   onChange={(event) =>
                     setField("website", event.target.value)
@@ -488,19 +490,32 @@ function ClinicProfileForm({ initialProfile }) {
           </CardContent>
         </Card>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={resetProfile}
-            disabled={saving}
-          >
-            Reset
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            {saving ? "Saving..." : "Save clinic profile"}
-          </Button>
+        <div className="sticky bottom-20 z-10 flex flex-col gap-3 rounded-2xl border border-border/80 bg-background/92 p-3 shadow-lg backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between lg:bottom-4">
+          <div className="flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground">
+            <span
+              className={`size-2 rounded-full ${
+                isDirty ? "bg-warning" : "bg-success"
+              }`}
+              aria-hidden="true"
+            />
+            {isDirty
+              ? "You have unsaved changes"
+              : "All changes are saved"}
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={resetProfile}
+              disabled={saving || !isDirty}
+            >
+              Discard changes
+            </Button>
+            <Button type="submit" disabled={saving || !isDirty}>
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
         </div>
       </form>
     </>
