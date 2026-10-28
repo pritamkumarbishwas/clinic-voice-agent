@@ -1,10 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
+from livekit.agents import tts
+
 import agent
 from app.agent import audio as audio_module
 from app.agent import worker as worker_module
-from livekit.agents import tts
 
 
 def test_is_stt_error_only_matches_stt_errors():
@@ -46,7 +47,7 @@ def test_is_interrupt_request_requires_control_topic_and_payload():
 
 def test_build_tts_streams_with_http_fallback(monkeypatch):
     monkeypatch.setattr(
-        agent,
+        audio_module,
         "settings",
         SimpleNamespace(
             sarvam_api_key="test-key",

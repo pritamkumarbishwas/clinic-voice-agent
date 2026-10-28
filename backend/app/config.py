@@ -167,6 +167,7 @@ class Settings:
     rag_timeout_seconds: float
     rag_max_upload_bytes: int
     rag_max_pdf_pages: int
+    rag_max_documents: int
 
     jwt_secret: str
     jwt_algorithm: str
@@ -285,6 +286,7 @@ class Settings:
                 "RAG_MAX_UPLOAD_BYTES", 5_000_000
             ),
             rag_max_pdf_pages=_int("RAG_MAX_PDF_PAGES", 50),
+            rag_max_documents=_int("RAG_MAX_DOCUMENTS", 200),
             jwt_secret=_text("JWT_SECRET", ""),
             jwt_algorithm=_text("JWT_ALGORITHM", "HS256").upper(),
             jwt_expire_minutes=_int("JWT_EXPIRE_MINUTES", 480),
@@ -492,6 +494,9 @@ class Settings:
 
         if self.rag_max_pdf_pages <= 0:
             errors.append("RAG_MAX_PDF_PAGES must be greater than 0")
+
+        if self.rag_max_documents < 1:
+            errors.append("RAG_MAX_DOCUMENTS must be at least 1")
 
         if self.database_timeout_ms < 1000:
             errors.append("DATABASE_TIMEOUT_MS must be at least 1000")

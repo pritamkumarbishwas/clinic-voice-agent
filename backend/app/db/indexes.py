@@ -1,7 +1,7 @@
 import logging
 
 from pymongo import ASCENDING, DESCENDING
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 
 from app.db.mongo import (
     appointments,
@@ -31,9 +31,6 @@ async def create_indexes() -> None:
     )
     await clinic_knowledge.create_index([("updated_at", DESCENDING)])
 
-    await slots.create_index(
-        [("doctor_id", ASCENDING), ("start_at", ASCENDING)]
-    )
     await slots.create_index([("status", ASCENDING), ("start_at", ASCENDING)])
     try:
         await slots.create_index(
@@ -41,10 +38,15 @@ async def create_indexes() -> None:
             unique=True,
             name="uniq_doctor_slot",
         )
-    except DuplicateKeyError:
+    except (DuplicateKeyError, OperationFailure):
         logger.warning(
-            "Could not create unique doctor slot index; duplicate slots exist. "
-            "Run scripts/ops/migrate_slot_indexes.py to remove duplicates."
+            "Could not create unique doctor slot index; duplicate slots exist "
+            "or an equivalent index already exists. Run "
+            "scripts/ops/migrate_slot_indexes.py to remove duplicates."
+        )
+        await slots.create_index(
+            [("doctor_id", ASCENDING), ("start_at", ASCENDING)],
+            name="doctor_id_1_start_at_1",
         )
 
     await appointments.create_index([("slot_id", ASCENDING)], unique=True)

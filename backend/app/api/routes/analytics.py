@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 
 from app.auth import CurrentUser, require_admin
@@ -58,10 +60,10 @@ async def latency_report(
         field: 1 for field in LATENCY_FIELDS
     } | {"_id": 0, "call_id": 1, "run_id": 1}
 
-    turns = await call_turns.find(turn_query, projection).to_list(
+    turns_task = call_turns.find(turn_query, projection).to_list(
         length=10000
     )
-    call_docs = await calls.find(
+    call_docs_task = calls.find(
         call_query,
         {
             "_id": 0,
@@ -72,6 +74,7 @@ async def latency_report(
             **{field: 1 for field in STT_FAILURE_FIELDS},
         },
     ).to_list(length=10000)
+    turns, call_docs = await asyncio.gather(turns_task, call_docs_task)
 
     report = build_report(turns, call_docs)
     report["run_id"] = run_id

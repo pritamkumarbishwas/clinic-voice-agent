@@ -18,7 +18,6 @@ from app.agent.audio import (
     _session_connect_options,
 )
 from app.agent.constants import (
-    CONTROL_TOPIC,
     LLM_FALLBACK_PROMPT,
     STT_REPEAT_PROMPT,
     TRANSCRIPT_TOPIC,

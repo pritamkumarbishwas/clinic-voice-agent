@@ -1,0 +1,45 @@
+[project]
+name = "clinic-voice-agent-backend"
+version = "0.1.0"
+description = "Hindi/Hinglish clinic receptionist API and LiveKit agent"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "python-dotenv>=1.0,<2",
+    "livekit-api>=1.0,<2",
+    "livekit-agents[silero,sarvam]~=1.8",
+    "motor>=3.6,<4",
+    "pymongo>=4.9,<5",
+    "openai>=2,<4",
+    "httpx>=0.27,<1",
+    "pypdf>=5,<6",
+    "python-multipart>=0.0.9,<1",
+    "pydantic>=2,<3",
+    "tzdata>=2024.1",
+    "PyJWT>=2.9,<3",
+    "pwdlib[argon2]>=0.2,<1",
+    "slowapi>=0.1.9,<1",
+    "email-validator>=2.2,<3",
+    "sentry-sdk[fastapi]>=2,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
+    "httpx>=0.27,<1",
+    "ruff>=0.9,<1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "UP017", "UP046", "B905", "B008"]

@@ -53,7 +53,9 @@ tool result as a successful booking. The prompt version is stored in
 
 Flow after a call ends:
 
-1. `agent.py` writes the finished call and finalizes the transcript.
+1. `backend/app/agent/worker.py` writes the finished call and finalizes the
+   transcript. `backend/agent.py` is a compatibility entry point for the
+   LiveKit CLI.
 2. The analysis worker claims the call and asks Sarvam LLM for a short summary,
    sentiment, intent, follow-up, and compliance flags.
 3. If the LLM call fails or is invalid, a deterministic rule-based analyzer is
@@ -64,8 +66,8 @@ Flow after a call ends:
 
 ## Prerequisites
 
-- Python 3.11+ (the repo has been run with 3.14 on Windows)
-- Node.js 20+
+- Python 3.12-3.14 (CI and Docker use 3.12)
+- Node.js 22+ (CI uses 22)
 - LiveKit Cloud project
 - Sarvam API key
 - MongoDB Atlas replica set (transactions are required for booking)
@@ -101,7 +103,7 @@ If set, it must point at the API, e.g. `http://localhost:8000`.
 Open three terminals from the repo root.
 
 ```powershell
-# 1. API (also starts the post-call analysis worker)
+# 1. API (embedded analysis worker is disabled by default)
 cd backend
 .\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
@@ -113,7 +115,14 @@ cd backend
 ```
 
 ```powershell
-# 3. Frontend
+# 3. Post-call analysis worker (run separately, or set
+# ANALYSIS_WORKER_ENABLED=true to embed it in the API process)
+cd backend
+.\.venv\Scripts\python.exe -m app.workers.analysis_worker
+```
+
+```powershell
+# 4. Frontend
 cd frontend
 npm run dev
 ```
@@ -142,6 +151,7 @@ See `backend/.env.example` for the full list. The important groups are:
 - MongoDB: `MONGODB_URI`, `MONGODB_DATABASE`
 - Auth: `JWT_SECRET` (32+ chars), `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`,
   `AUTH_COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
+- Runtime: `APP_ENV`, `TRUSTED_HOSTS`, `DATABASE_TIMEOUT_MS`
 - Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`), `CORS_ORIGINS`
 - STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`,
   `STT_TRANSCRIPTION_TIMEOUT` (`STT_ENDPOINTING` must stay `vad`; the agent
@@ -162,9 +172,13 @@ See `backend/.env.example` for the full list. The important groups are:
   `INTERRUPTION_MIN_DURATION`, `PREEMPTIVE_TTS`
 - Analysis: `ANALYSIS_MODEL`, `ANALYSIS_MAX_ATTEMPTS`,
   `ANALYSIS_POLL_SECONDS`, `ANALYSIS_TIMEOUT_SECONDS`,
-  `ANALYSIS_WORKER_ENABLED`, `ANALYSIS_TRANSCRIPT_CHARS`
+  `ANALYSIS_WORKER_ENABLED` (default `false`), `ANALYSIS_TRANSCRIPT_CHARS`
+- RAG: `OPENAI_API_KEY`, `RAG_ENABLED`, `OPENAI_EMBEDDING_MODEL`,
+  `RAG_TOP_K`, `RAG_MIN_SCORE`, `RAG_CHUNK_CHARS`, `RAG_CHUNK_OVERLAP`,
+  `RAG_TIMEOUT_SECONDS`, `RAG_MAX_UPLOAD_BYTES`, `RAG_MAX_PDF_PAGES`,
+  `RAG_MAX_DOCUMENTS`
 - Operations: `LOG_LEVEL`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`,
-  `RATE_LIMIT_ENABLED`, `TRUST_PROXY_HEADERS`
+  `RATE_LIMIT_ENABLED`, `TRUST_PROXY_HEADERS` (default `false`)
 
 `Settings.validate()` checks required values and fails fast with a readable
 list of invalid names at API and agent startup.
@@ -190,6 +204,7 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 
 Public:
 
+- `GET /api/health/live`
 - `GET /api/health`
 - `GET /api/ready`
 - `GET /api/generate-token` - LiveKit token. With `?run_id=baseline-1`, an
@@ -267,16 +282,17 @@ runtime failures and transcription latency are measured automatically.
 
 ## Deployment
 
-The repository does not include CI/CD, Docker, or provider-specific hosting
-configuration. See [`docs/deployment.md`](docs/deployment.md) for provider-neutral
-steps covering the API, agent worker, static frontend, MongoDB Atlas, LiveKit
-Cloud, and Sarvam.
+`backend/Dockerfile` builds the API/agent image, and `.github/workflows/ci.yml`
+runs backend tests plus frontend lint/test/build. See
+[`docs/deployment.md`](docs/deployment.md) for provider-neutral steps covering
+the API, agent worker, static frontend, MongoDB Atlas, LiveKit Cloud, and Sarvam.
 
 ## Tests and checks
 
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\ruff.exe check app agent.py main.py tests scripts
 ```
 
 ```powershell
@@ -298,3 +314,8 @@ npm run build
   end-to-end voice validation.
 - Public callers can start a session without login, so production deployments
   should keep token rate limits enabled and monitor usage.
+- Rate limits are in-process. Use one API replica or add a Redis-backed limiter
+  before scaling the API horizontally.
+- Slot generation writes are idempotent, but run
+  `scripts/ops/migrate_slot_indexes.py --apply` once if duplicate slots predate
+  the unique index.

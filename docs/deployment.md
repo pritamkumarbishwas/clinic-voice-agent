@@ -1,11 +1,15 @@
 # Deployment guide
 
-This repository does not include provider-specific CI/CD, Docker, or hosting
-configuration. Deploy the same runtime pieces on any platform that supports them:
+The repository includes `backend/Dockerfile` and
+`.github/workflows/ci.yml`. Deploy the same runtime pieces on any platform that
+supports them:
 
 - a static frontend built from `frontend/`
 - the FastAPI service in `backend/`
-- the LiveKit agent worker in `backend/agent.py`
+- the LiveKit agent worker in `backend/app/agent/worker.py` (run through the
+  `backend/agent.py` compatibility entry point)
+- a dedicated post-call analysis worker, or one API replica with
+  `ANALYSIS_WORKER_ENABLED=true`
 - MongoDB Atlas or another replica-set MongoDB
 - LiveKit Cloud and Sarvam credentials
 
@@ -49,7 +53,17 @@ python -c "import secrets; print(secrets.token_hex(32))"
    `backend/.venv/Scripts/python.exe scripts/create_admin.py --email admin@example.com`
    and enter the password when prompted.
 
-Indexes are created automatically at API/agent startup by `app/database.py`.
+Indexes are created automatically at API/agent startup by
+`app/db/indexes.py`. If the unique doctor-slot index cannot be created because
+duplicate slots already exist, run the idempotent migration:
+
+```powershell
+backend/.venv/Scripts/python.exe scripts/ops/migrate_slot_indexes.py
+backend/.venv/Scripts/python.exe scripts/ops/migrate_slot_indexes.py --apply
+```
+
+The first command is a dry run. `--apply` deletes duplicate slots, keeps a
+booked slot when one exists, and creates `uniq_doctor_slot`.
 
 ## 3. API service
 
@@ -60,23 +74,31 @@ Indexes are created automatically at API/agent startup by `app/database.py`.
    uvicorn main:app --host 0.0.0.0 --port 8000
    ```
 
-3. Health check paths: `/api/health` and `/api/ready`.
+3. Health check paths: `/api/health/live` (liveness), `/api/health` and
+   `/api/ready` (MongoDB readiness).
 4. Set the shared environment variables for both the API and agent worker:
+   - `APP_ENV=production`
    - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
    - `LIVEKIT_AGENT_NAME=clinic-receptionist`
    - `SARVAM_API_KEY`
    - `MONGODB_URI`, `MONGODB_DATABASE=clinic_voice_ai`
+   - `DATABASE_TIMEOUT_MS=5000`
    - `CLINIC_TIMEZONE=Asia/Kolkata`
    - `JWT_SECRET` (32+ characters)
    - `JWT_ALGORITHM=HS256`, `JWT_EXPIRE_MINUTES=480`
    - `AUTH_COOKIE_NAME=clinic_access_token`
    - `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`
    - `LOG_LEVEL=INFO`, `RATE_LIMIT_ENABLED=true`
-   - `TRUST_PROXY_HEADERS=true` when behind a trusted reverse proxy
+   - `TRUSTED_HOSTS` with explicit API hostnames
+   - `TRUST_PROXY_HEADERS=true` only behind a trusted reverse proxy
    - optional `SENTRY_DSN`, `SENTRY_ENVIRONMENT=production`
+   - optional RAG settings: `OPENAI_API_KEY`, `RAG_ENABLED`,
+     `OPENAI_EMBEDDING_MODEL`, `RAG_TOP_K`, `RAG_MIN_SCORE`,
+     `RAG_CHUNK_CHARS`, `RAG_CHUNK_OVERLAP`, `RAG_TIMEOUT_SECONDS`,
+     `RAG_MAX_UPLOAD_BYTES`, `RAG_MAX_PDF_PAGES`, `RAG_MAX_DOCUMENTS`
 5. API-only variables:
-   - `ANALYSIS_WORKER_ENABLED=true`
-   - `CORS_ORIGINS` only if the browser calls the API cross-origin
+   - `ANALYSIS_WORKER_ENABLED=false` when running a dedicated worker
+   - `CORS_ORIGINS` with the exact production frontend origin
 
 For a same-origin reverse proxy, `COOKIE_SAMESITE=lax` is sufficient. If the
 frontend calls the API directly from another site, use
@@ -95,6 +117,11 @@ frontend calls the API directly from another site, use
    ```
 
 4. Confirm the worker registers with LiveKit in its logs.
+5. Run one dedicated analysis worker when `ANALYSIS_WORKER_ENABLED=false`:
+
+   ```powershell
+   python -m app.workers.analysis_worker
+   ```
 
 The agent loads the clinic profile from MongoDB on each call and injects it
 into the receptionist prompt. The prompt version is stored in
@@ -119,7 +146,8 @@ The patient call page is public at `/`. Staff sign in at `/admin/login`.
 
 ## 6. Post-deployment smoke test
 
-1. `GET /api/health` and `GET /api/ready` return healthy.
+1. `GET /api/health/live`, `GET /api/health`, and `GET /api/ready` return
+   healthy.
 2. Open `/` and start a call. Allow microphone access and speak one Hinglish
    sentence.
 3. Ask "clinic ka address kya hai?" and confirm the answer matches the clinic
@@ -135,23 +163,41 @@ The patient call page is public at `/`. Staff sign in at `/admin/login`.
 
 ## 7. Monitoring and operations
 
-- API and agent worker health: check `/api/health` and worker logs separately.
+- API and agent worker health: check `/api/health/live`, `/api/health`, and
+  worker logs separately.
 - Sentry: set `SENTRY_DSN` for API exceptions.
 - Request tracing: every API response has `X-Request-ID`.
 - Rate limits: login is limited to 5/minute per IP; token generation to
-  20/minute per IP.
+  20/minute per IP. Limits are in-process, so use one API replica or add a
+  Redis-backed limiter before horizontal scaling.
 - Requeue a stuck analysis: `POST /api/calls/{call_id}/analyze` from the call
   log UI.
 - Backups: enable Atlas continuous backups before real patient use.
 
-## 8. Tests
+## 8. Docker and CI
 
-CI is not configured in the repository. Run the documented checks before
-deploying:
+Build the API/agent image from `backend/`:
+
+```powershell
+docker build -t clinic-voice-agent .
+docker run --env-file .env -p 8000:8000 clinic-voice-agent
+```
+
+Override the command for the agent worker or analysis worker:
+
+```powershell
+docker run --env-file .env clinic-voice-agent python agent.py start
+docker run --env-file .env clinic-voice-agent python -m app.workers.analysis_worker
+```
+
+`.github/workflows/ci.yml` runs backend compile/tests/ruff and frontend
+test/lint/build on pushes to `main` and pull requests. Run the same checks
+locally before deploying:
 
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\ruff.exe check app agent.py main.py tests scripts
 ```
 
 ```powershell

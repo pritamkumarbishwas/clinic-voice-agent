@@ -49,6 +49,8 @@ from app.prompts.receptionist import (
 )
 from app.services.booking_service import (
     book_appointment as db_book_appointment,
+)
+from app.services.booking_service import (
     check_availability as db_check_availability,
 )
 from app.services.knowledge_service import search_knowledge

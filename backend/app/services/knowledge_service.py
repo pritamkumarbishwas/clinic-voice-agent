@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import logging
@@ -115,7 +116,7 @@ def _object_id(value: str) -> ObjectId:
 
 
 def _content_hash(title: str, category: str, content: str) -> str:
-    payload = f"{title}\n{category}\n{content}".encode("utf-8")
+    payload = f"{title}\n{category}\n{content}".encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -361,13 +362,37 @@ async def search_knowledge(
     )
     query_embedding = (await embed_texts([cleaned]))[0]
 
-    documents = [
-        document
-        async for document in clinic_knowledge.find(
-            {"active": True},
-            {"title": 1, "category": 1, "chunks": 1},
-        )
-    ]
+    async def _load_documents() -> list[dict]:
+        return [
+            document
+            async for document in clinic_knowledge.find(
+                {"active": True},
+                {"title": 1, "category": 1, "chunks": 1},
+            ).limit(settings.rag_max_documents)
+        ]
+
+    async def _load_doctors() -> list[dict]:
+        return [
+            doctor
+            async for doctor in doctors.find(
+                {
+                    "active": True,
+                    "bio": {"$nin": [None, ""]},
+                    "bio_embedding": {"$exists": True, "$ne": None},
+                },
+                {
+                    "name": 1,
+                    "specialty": 1,
+                    "bio": 1,
+                    "bio_embedding": 1,
+                },
+            ).limit(100)
+        ]
+
+    documents, doctor_docs = await asyncio.gather(
+        _load_documents(),
+        _load_doctors(),
+    )
     results = _knowledge_results(
         query_embedding,
         documents,
@@ -376,19 +401,7 @@ async def search_knowledge(
     )
 
     doctor_results: list[dict] = []
-    async for doctor in doctors.find(
-        {
-            "active": True,
-            "bio": {"$nin": [None, ""]},
-            "bio_embedding": {"$exists": True, "$ne": None},
-        },
-        {
-            "name": 1,
-            "specialty": 1,
-            "bio": 1,
-            "bio_embedding": 1,
-        },
-    ):
+    for doctor in doctor_docs:
         score = cosine_similarity(
             query_embedding, doctor.get("bio_embedding") or []
         )

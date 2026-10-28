@@ -1,11 +1,15 @@
 from fastapi import APIRouter, HTTPException
 
 from app.db.mongo import database_ready
+from app.schemas.health import LivenessResponse, ReadinessResponse
 
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health/live")
+@router.get(
+    "/health/live",
+    response_model=LivenessResponse,
+)
 async def liveness_check():
     return {
         "status": "alive",
@@ -13,7 +17,10 @@ async def liveness_check():
     }
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    response_model=ReadinessResponse,
+)
 async def health_check():
     if not await database_ready():
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -25,6 +32,9 @@ async def health_check():
     }
 
 
-@router.get("/ready")
+@router.get(
+    "/ready",
+    response_model=ReadinessResponse,
+)
 async def readiness_check():
     return await health_check()

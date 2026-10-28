@@ -5,7 +5,14 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+from pymongo import UpdateOne
 
 from app.config import settings
 from app.database import appointments, doctors, slots
@@ -257,8 +264,8 @@ async def generate_doctor_slots(
         filtered.append(start_at)
     desired_set = set(filtered)
 
-    for start_at in filtered:
-        await slots.update_one(
+    operations = [
+        UpdateOne(
             {
                 "doctor_id": object_id,
                 "start_at": start_at,
@@ -275,11 +282,15 @@ async def generate_doctor_slots(
             },
             upsert=True,
         )
+        for start_at in filtered
+    ]
+    if operations:
+        await slots.bulk_write(operations, ordered=False)
 
     removed = 0
     if prune:
         horizon = now + timedelta(days=days + 1)
-        stale = slots.find(
+        result = await slots.delete_many(
             {
                 "doctor_id": object_id,
                 "status": "available",
@@ -288,13 +299,9 @@ async def generate_doctor_slots(
                     "$lt": horizon,
                     "$nin": list(desired_set),
                 },
-            },
-            {"_id": 1},
+            }
         )
-        stale_ids = [slot["_id"] async for slot in stale]
-        if stale_ids:
-            result = await slots.delete_many({"_id": {"$in": stale_ids}})
-            removed = result.deleted_count
+        removed = result.deleted_count
 
     return {"created": len(filtered), "removed": removed}
 

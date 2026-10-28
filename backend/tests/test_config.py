@@ -192,3 +192,41 @@ def test_sanitize_run_id_rejects_unsafe_values():
     assert sanitize_run_id("bad/slash") is None
     assert sanitize_run_id("x" * 49) is None
     assert sanitize_run_id(None) is None
+
+
+def test_production_requires_secure_cookie_explicit_hosts_and_cors(
+    monkeypatch,
+):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    monkeypatch.setenv("TRUSTED_HOSTS", "*")
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:5173")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    message = str(error.value)
+    assert "COOKIE_SECURE must be true in production" in message
+    assert "TRUSTED_HOSTS must list explicit hosts in production" in message
+    assert "CORS_ORIGINS cannot contain localhost in production" in message
+
+
+def test_worker_and_proxy_flags_default_to_safe_values(monkeypatch):
+    monkeypatch.delenv("ANALYSIS_WORKER_ENABLED", raising=False)
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+
+    config = Settings.from_env()
+
+    assert config.analysis_worker_enabled is False
+    assert config.trust_proxy_headers is False
+
+
+def test_rag_max_documents_must_be_positive(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("RAG_MAX_DOCUMENTS", "0")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "RAG_MAX_DOCUMENTS must be at least 1" in str(error.value)

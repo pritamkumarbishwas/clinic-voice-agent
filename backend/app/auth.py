@@ -6,8 +6,8 @@ import jwt
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, EmailStr, Field
 from pwdlib import PasswordHash
+from pydantic import BaseModel, EmailStr, Field
 
 from app.config import settings
 from app.database import users
@@ -136,8 +136,8 @@ async def get_current_user(request: Request) -> CurrentUser:
 
     try:
         user_id = ObjectId(subject)
-    except (InvalidId, TypeError):
-        raise _credentials_error("Invalid token subject")
+    except (InvalidId, TypeError) as error:
+        raise _credentials_error("Invalid token subject") from error
 
     user = await users.find_one({"_id": user_id, "active": True})
     if user is None:

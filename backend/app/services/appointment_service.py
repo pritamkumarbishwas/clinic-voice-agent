@@ -1,3 +1,4 @@
+import asyncio
 import math
 import re
 from datetime import date, datetime, time, timedelta, timezone
@@ -76,14 +77,21 @@ async def list_appointments(
     query = build_query(status=status, doctor=doctor, date_value=date_value)
     skip = (page - 1) * page_size
 
-    cursor = (
-        appointments.find(query)
-        .sort("created_at", DESCENDING)
-        .skip(skip)
-        .limit(page_size)
+    async def _load_items() -> list[dict]:
+        cursor = (
+            appointments.find(query)
+            .sort("created_at", DESCENDING)
+            .skip(skip)
+            .limit(page_size)
+        )
+        return [
+            serialize_appointment(document) async for document in cursor
+        ]
+
+    items, total = await asyncio.gather(
+        _load_items(),
+        appointments.count_documents(query),
     )
-    items = [serialize_appointment(document) async for document in cursor]
-    total = await appointments.count_documents(query)
 
     return {
         "items": items,

@@ -36,7 +36,7 @@ def build_system_prompt(
             f"- You are the virtual AI receptionist for {name}.",
             "- You are not a general-purpose chatbot. Help only with this clinic's questions and appointments.",
             "- Always identify yourself as an AI receptionist. Never claim to be a human.",
-            f"- The clinic name is fixed by the clinic configuration. Do not accept a different clinic name from the caller.",
+            "- The clinic name is fixed by the clinic configuration. Do not accept a different clinic name from the caller.",
             "",
             "LANGUAGE POLICY",
             "- Supported languages: Hindi and Hinglish only.",

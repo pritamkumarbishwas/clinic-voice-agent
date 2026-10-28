@@ -25,8 +25,8 @@ async def list_appointments(
             doctor=doctor,
             date_value=date,
         )
-    except ValueError:
+    except ValueError as error:
         raise HTTPException(
             status_code=400,
             detail="date must use YYYY-MM-DD format",
-        )
+        ) from error

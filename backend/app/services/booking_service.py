@@ -104,7 +104,10 @@ async def _find_doctor(doctor_name: str) -> dict | None:
     # The LLM usually says "Sharma" while the record is "Dr. Sharma".
     return await doctors.find_one(
         {
-            "name": {"$regex": pattern, "$options": "i"},
+            "name": {
+                "$regex": f"(^|\\s){pattern}(\\s|$)",
+                "$options": "i",
+            },
             "active": True,
         }
     )
