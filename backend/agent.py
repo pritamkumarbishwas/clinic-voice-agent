@@ -39,6 +39,10 @@ from app.services.booking_service import (
     format_stt_prompt,
     get_doctor_directory,
 )
+from app.services.booking_session import (
+    BookingSessionState,
+    BookingStateLockedError,
+)
 from app.services.clinic_service import (
     DEFAULT_CLINIC,
     format_clinic_for_prompt,
@@ -286,16 +290,110 @@ class ClinicReceptionist(Agent):
         clinic_details: str,
         doctor_roster: str,
     ):
-        super().__init__(
-            instructions=build_system_prompt(
-                clinic_name=clinic_name,
-                clinic_details=clinic_details,
-                doctor_roster=doctor_roster,
-                today=today,
-                timezone=CLINIC_TZ.key,
-            )
+        self._base_instructions = build_system_prompt(
+            clinic_name=clinic_name,
+            clinic_details=clinic_details,
+            doctor_roster=doctor_roster,
+            today=today,
+            timezone=CLINIC_TZ.key,
         )
+        self.booking_state = BookingSessionState()
+        self._last_state_summary = self.booking_state.prompt_summary()
+        super().__init__(instructions=self._compose_instructions())
         self.call_id = call_id
+
+    def _compose_instructions(self) -> str:
+        return (
+            f"{self._base_instructions}\n\n"
+            f"{self.booking_state.prompt_summary()}"
+        )
+
+    def _json_with_state(self, payload: dict) -> str:
+        result = dict(payload)
+        result["session_state"] = self.booking_state.prompt_summary()
+        return json.dumps(result, default=str)
+
+    async def _refresh_instructions(self) -> None:
+        summary = self.booking_state.prompt_summary()
+        if summary == self._last_state_summary:
+            return
+
+        try:
+            await self.update_instructions(self._compose_instructions())
+        except Exception:
+            logger.exception("Could not refresh booking session state")
+            return
+        self._last_state_summary = summary
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        await self._refresh_instructions()
+
+    @function_tool()
+    async def save_booking_details(
+        self,
+        context: RunContext,
+        date: str,
+        doctor: str,
+        name: str,
+        phone: str,
+    ) -> str:
+        """Remember booking details the caller has already provided.
+
+        Use this immediately when the caller states or corrects a booking
+        detail that is not being passed to check_availability or
+        book_appointment in the same turn. Pass an empty string for each
+        detail that was not provided in this turn.
+
+        Args:
+            date: Requested appointment date in YYYY-MM-DD format.
+            doctor: Doctor's name, for example Dr. Sharma.
+            name: Patient's full name.
+            phone: Patient's phone number.
+        """
+        if not any((date, doctor, name, phone)):
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "message": "No booking detail was provided to save.",
+                }
+            )
+
+        try:
+            self.booking_state.update_details(
+                date=date or None,
+                doctor=doctor or None,
+                name=name or None,
+                phone=phone or None,
+            )
+        except BookingStateLockedError:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "BOOKING_ALREADY_CONFIRMED",
+                    "message": (
+                        "The appointment is already confirmed. Do not collect "
+                        "or change booking details; refer changes to staff."
+                    ),
+                }
+            )
+        except ValueError as exc:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "INVALID_BOOKING_DETAIL",
+                    "message": str(exc),
+                }
+            )
+
+        return self._json_with_state(
+            {
+                "ok": True,
+                "message": (
+                    "Booking details saved. Ask only for the next missing "
+                    "detail and do not ask for saved details again."
+                ),
+            }
+        )
 
     @function_tool()
     async def check_availability(
@@ -311,17 +409,42 @@ class ClinicReceptionist(Agent):
             doctor: Doctor's name, for example Dr. Sharma.
         """
         try:
+            self.booking_state.update_details(date=date, doctor=doctor)
+        except BookingStateLockedError:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "BOOKING_ALREADY_CONFIRMED",
+                    "message": (
+                        "The appointment is already confirmed. Do not check "
+                        "availability again; refer changes to staff."
+                    ),
+                }
+            )
+        except ValueError as exc:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "INVALID_DATE",
+                    "message": str(exc),
+                }
+            )
+
+        try:
             result = await asyncio.wait_for(
                 db_check_availability(date, doctor),
                 timeout=AVAILABILITY_TIMEOUT_SECONDS,
             )
-            return json.dumps(result, default=str)
+            self.booking_state.record_availability(result)
+            return self._json_with_state(result)
 
         except Exception:
             logger.exception("Availability tool failed")
-            return json.dumps(
+            self.booking_state.record_availability_error()
+            return self._json_with_state(
                 {
                     "ok": False,
+                    "code": "AVAILABILITY_ERROR",
                     "message": (
                         "Availability service is temporarily unavailable. "
                         "Tell the caller you cannot verify availability."
@@ -348,12 +471,41 @@ class ClinicReceptionist(Agent):
                 to book the repeated appointment details.
         """
         if confirmed is not True:
-            return json.dumps(
+            return self._json_with_state(
                 {
                     "ok": False,
                     "message": (
                         "Booking not attempted. Confirm the appointment "
                         "details with the caller first."
+                    ),
+                }
+            )
+
+        selected_slot = next(
+            (
+                slot
+                for slot in self.booking_state.available_slots
+                if slot["slot_id"] == slot_id
+            ),
+            None,
+        )
+        try:
+            self.booking_state.record_booking_attempt(
+                name=name,
+                phone=phone,
+                slot_id=slot_id,
+                local_time=(
+                    selected_slot["local_time"] if selected_slot else None
+                ),
+            )
+        except BookingStateLockedError:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "BOOKING_ALREADY_CONFIRMED",
+                    "message": (
+                        "The appointment is already confirmed. Do not book "
+                        "again; refer changes to staff."
                     ),
                 }
             )
@@ -368,11 +520,13 @@ class ClinicReceptionist(Agent):
                 ),
                 timeout=BOOKING_TIMEOUT_SECONDS,
             )
-            return json.dumps(result, default=str)
+            self.booking_state.record_booking(result)
+            return self._json_with_state(result)
 
         except Exception:
             logger.exception("Booking tool failed")
-            return json.dumps(
+            self.booking_state.record_booking_error()
+            return self._json_with_state(
                 {
                     "ok": False,
                     "code": "BOOKING_ERROR",
@@ -888,6 +1042,7 @@ async def clinic_receptionist(ctx: agents.JobContext):
             if event.is_final:
                 empty_transcript_count += 1
                 jobs.put_nowait(("stt_failure", "empty_transcript_count"))
+                prompt_repeat()
             return
 
         if event.is_final:

@@ -130,7 +130,11 @@ async def check_availability(date: str, doctor_name: str) -> dict:
             _normalize_digits(_clean_text(date)), "%Y-%m-%d"
         ).date()
     except (TypeError, ValueError):
-        return {"ok": False, "message": "Use date format YYYY-MM-DD."}
+        return {
+            "ok": False,
+            "code": "INVALID_DATE",
+            "message": "Use date format YYYY-MM-DD.",
+        }
 
     holiday = await _closed_holiday_for_date(requested_date)
     if holiday is not None:
@@ -149,6 +153,7 @@ async def check_availability(date: str, doctor_name: str) -> dict:
     if not doctor:
         return {
             "ok": False,
+            "code": "DOCTOR_NOT_FOUND",
             "message": (
                 f"No active doctor matched '{_clean_text(doctor_name)}'. "
                 "Ask the caller which doctor they want."

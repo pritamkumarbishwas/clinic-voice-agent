@@ -45,8 +45,11 @@ roster, so edits in `/admin/clinic` apply to the next call. It is Hindi/Hinglish
 only, answers verified clinic questions, checks availability, and books
 appointments. Cancellation, rescheduling, insurance, billing, reports, records,
 complaints, and human-support requests are referred to the configured clinic
-phone; the assistant does not promise callbacks or transfers. The prompt version
-is stored in `calls.agent_config.prompt.version` for benchmark comparison.
+phone; the assistant does not promise callbacks or transfers. It asks callers to
+repeat unclear speech, says staff will confirm missing clinic information,
+refuses diagnosis or medicine requests, and never treats a failed or unverified
+tool result as a successful booking. The prompt version is stored in
+`calls.agent_config.prompt.version` for benchmark comparison.
 
 Flow after a call ends:
 
@@ -217,9 +220,11 @@ Admin (JWT cookie):
 - `/admin/clinic` - clinic profile editor
 - `/admin/latency` - benchmark latency dashboard
 
-## Benchmark (20 calls)
+## Benchmark and scenario suite
 
-Use a fixed test run so results are comparable.
+Use a fixed test run so results are comparable. The manual script contains the
+20-call latency benchmark plus Phase 2, Phase 4, and STT checks, covering more
+than 30 FAQ and conversation scenarios.
 
 ```powershell
 cd backend
@@ -227,7 +232,7 @@ cd backend
 ```
 
 Copy the printed `run_id` into the **Test run label** field on the admin Live
-call page, then complete the 20 calls in `benchmark-script.md`. The script
+call page, then complete the scenarios in `benchmark-script.md`. The script
 includes a per-call table for transcription accuracy, response relevance,
 audible playback, barge-in, the **Stop AI voice** control, first-audio latency,
 and disconnect cleanup.
