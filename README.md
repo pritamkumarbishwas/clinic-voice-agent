@@ -100,7 +100,8 @@ If set, it must point at the API, e.g. `http://localhost:8000`.
 
 ## Run
 
-Open three terminals from the repo root.
+Open four terminals from the repo root (or run the analysis worker inside the
+API process with `ANALYSIS_WORKER_ENABLED=true`).
 
 ```powershell
 # 1. API (embedded analysis worker is disabled by default)
