@@ -332,17 +332,17 @@ class ClinicReceptionist(Agent):
     async def save_booking_details(
         self,
         context: RunContext,
-        date: str,
-        doctor: str,
-        name: str,
-        phone: str,
+        date: str = "",
+        doctor: str = "",
+        name: str = "",
+        phone: str = "",
     ) -> str:
         """Remember booking details the caller has already provided.
 
         Use this immediately when the caller states or corrects a booking
         detail that is not being passed to check_availability or
-        book_appointment in the same turn. Pass an empty string for each
-        detail that was not provided in this turn.
+        book_appointment in the same turn. Omit or pass an empty string for
+        each detail that was not provided in this turn.
 
         Args:
             date: Requested appointment date in YYYY-MM-DD format.
@@ -489,6 +489,18 @@ class ClinicReceptionist(Agent):
             ),
             None,
         )
+        if selected_slot is None:
+            return self._json_with_state(
+                {
+                    "ok": False,
+                    "code": "INVALID_SLOT",
+                    "message": (
+                        "That slot was not returned by the current "
+                        "availability check. Check availability again before "
+                        "booking."
+                    ),
+                }
+            )
         try:
             self.booking_state.record_booking_attempt(
                 name=name,

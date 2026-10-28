@@ -62,6 +62,14 @@ def test_normalize_iso_date_accepts_whitespace_and_devanagari_digits():
     assert normalize_iso_date("२०२६-१०-२९") == "2026-10-29"
 
 
+def test_normalize_iso_date_rejects_extra_characters():
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        normalize_iso_date("2026-10-29T10:00:00")
+
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        normalize_iso_date("2026-10-29abc")
+
+
 def test_date_change_invalidates_availability_and_slot():
     state = BookingSessionState()
     state.update_details(date="2026-10-29", doctor="Dr. Sharma")
@@ -216,6 +224,22 @@ def test_verified_booking_confirms_state():
     assert state.appointment_id == "appointment-1"
     assert "Booking status: confirmed" in state.prompt_summary()
     assert "Do not collect booking details again" in state.prompt_summary()
+
+
+def test_booking_success_without_appointment_id_is_not_confirmed():
+    state = BookingSessionState()
+    state.update_details(date="2026-10-29", doctor="Dr. Sharma")
+    state.record_booking_attempt(
+        name="Priya Sharma",
+        phone="9876543210",
+        slot_id="slot-1",
+    )
+
+    state.record_booking({"ok": True})
+
+    assert state.is_confirmed is False
+    assert state.booking_status == "failed"
+    assert state.last_error_code == "BOOKING_FAILED"
 
 
 def test_confirmed_booking_rejects_detail_changes():

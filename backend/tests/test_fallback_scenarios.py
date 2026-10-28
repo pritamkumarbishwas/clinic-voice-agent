@@ -72,6 +72,7 @@ def _available_receptionist() -> agent.ClinicReceptionist:
         "If the caller asks for a human, offer the configured clinic phone",
         "Never say you have transferred the call",
         "Do not claim success after a tool failure, timeout, or ok=false result.",
+        "If a booking or availability tool fails or times out",
         "If knowledge search fails, say clinic staff will confirm.",
         "Never invent a phone number.",
         "Do not invent an address, phone number, fee",
@@ -126,6 +127,23 @@ def test_save_booking_details_retains_name_and_phone():
     assert receptionist.booking_state.phone == "9876543210"
     assert receptionist.booking_state.requested_date == TODAY
     assert receptionist.booking_state.doctor == "Dr. Sharma"
+
+
+def test_save_booking_details_accepts_partial_arguments():
+    receptionist = _receptionist()
+
+    result = json.loads(
+        asyncio.run(
+            receptionist.save_booking_details(
+                None,
+                name="Priya Sharma",
+            )
+        )
+    )
+
+    assert result["ok"] is True
+    assert receptionist.booking_state.patient_name == "Priya Sharma"
+    assert receptionist.booking_state.requested_date is None
 
 
 def test_date_correction_invalidates_availability():
@@ -444,6 +462,36 @@ def test_slot_unavailable_clears_stale_slot(monkeypatch):
     assert receptionist.booking_state.is_confirmed is False
     assert receptionist.booking_state.selected_slot_id is None
     assert receptionist.booking_state.availability_status == "not_checked"
+
+
+def test_booking_rejects_slot_after_date_change(monkeypatch):
+    called = False
+
+    async def fake_book(**kwargs):
+        nonlocal called
+        called = True
+        return {"ok": True, "appointment_id": "appointment-1"}
+
+    monkeypatch.setattr(agent, "db_book_appointment", fake_book)
+    receptionist = _available_receptionist()
+    receptionist.booking_state.update_details(date="2026-10-30")
+
+    result = json.loads(
+        asyncio.run(
+            receptionist.book_appointment(
+                None,
+                "Priya Sharma",
+                "9876543210",
+                "slot-1",
+                True,
+            )
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "INVALID_SLOT"
+    assert called is False
+    assert receptionist.booking_state.is_confirmed is False
 
 
 def test_booking_exception_marks_failed_without_success(monkeypatch):

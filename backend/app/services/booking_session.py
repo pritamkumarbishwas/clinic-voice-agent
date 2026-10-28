@@ -26,7 +26,11 @@ def _clean_detail(value: str | None, limit: int = _MAX_DETAIL_CHARS) -> str:
 
 
 def normalize_iso_date(value: str | None) -> str:
-    cleaned = _clean_detail(value, 10).translate(_DEVANAGARI_DIGITS)
+    cleaned = " ".join(str(value or "").split()).translate(
+        _DEVANAGARI_DIGITS
+    )
+    if len(cleaned) != 10:
+        raise ValueError("Date must use YYYY-MM-DD.")
     try:
         parsed = datetime.strptime(cleaned, "%Y-%m-%d")
     except ValueError as exc:
@@ -224,19 +228,23 @@ class BookingSessionState:
         self.last_error_code = None
 
     def record_booking(self, result: dict) -> None:
-        """Record a verified booking result. Only ok=true means confirmed."""
-        if result.get("ok"):
+        """Record a verified booking result. Only ok=true with an ID confirms."""
+        appointment_id = _clean_detail(result.get("appointment_id"), 80)
+        if result.get("ok") and appointment_id:
             self.booking_status = _STATUS_CONFIRMED
             self.last_error_code = None
-            appointment_id = _clean_detail(result.get("appointment_id"), 80)
-            if appointment_id:
-                self.appointment_id = appointment_id
+            self.appointment_id = appointment_id
             booked_start = _clean_detail(result.get("start_at"), 80)
             if booked_start:
                 self.booked_start_at = booked_start
             canonical_doctor = _clean_detail(result.get("doctor"))
             if canonical_doctor:
                 self.doctor = canonical_doctor
+            return
+
+        if result.get("ok"):
+            self.booking_status = _STATUS_FAILED
+            self.last_error_code = "BOOKING_FAILED"
             return
 
         code = _clean_detail(result.get("code"), 60) or "BOOKING_FAILED"
