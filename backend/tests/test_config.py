@@ -212,6 +212,16 @@ def test_production_requires_secure_cookie_explicit_hosts_and_cors(
     assert "CORS_ORIGINS cannot contain localhost in production" in message
 
 
+def test_cors_wildcard_is_rejected(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+
+    with pytest.raises(RuntimeError) as error:
+        Settings.from_env().validate()
+
+    assert "CORS_ORIGINS cannot contain '*'" in str(error.value)
+
+
 def test_worker_and_proxy_flags_default_to_safe_values(monkeypatch):
     monkeypatch.delenv("ANALYSIS_WORKER_ENABLED", raising=False)
     monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)

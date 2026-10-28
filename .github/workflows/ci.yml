@@ -20,9 +20,17 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
+      - run: pip check
       - run: python -m compileall -q app agent.py main.py tests
       - run: python -m pytest -q
       - run: ruff check app agent.py main.py tests
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t clinic-voice-agent backend
+      - run: docker run --rm clinic-voice-agent python -m compileall -q app agent.py main.py
 
   frontend:
     runs-on: ubuntu-latest

@@ -530,6 +530,12 @@ class Settings:
         if not self.cors_origins:
             errors.append("CORS_ORIGINS must contain at least one origin")
 
+        if "*" in self.cors_origins:
+            errors.append(
+                "CORS_ORIGINS cannot contain '*' because credentialed "
+                "requests are enabled"
+            )
+
         if self.app_env == "production":
             if not self.cookie_secure:
                 errors.append(

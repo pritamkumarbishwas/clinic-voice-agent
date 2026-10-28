@@ -179,7 +179,8 @@ See `backend/.env.example` for the full list. The important groups are:
   `RAG_TIMEOUT_SECONDS`, `RAG_MAX_UPLOAD_BYTES`, `RAG_MAX_PDF_PAGES`,
   `RAG_MAX_DOCUMENTS`
 - Operations: `LOG_LEVEL`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`,
-  `RATE_LIMIT_ENABLED`, `TRUST_PROXY_HEADERS` (default `false`)
+  `RATE_LIMIT_ENABLED`, `TRUST_PROXY_HEADERS` (default `false`; only enable
+  behind a trusted proxy that sets `X-Forwarded-For`)
 
 `Settings.validate()` checks required values and fails fast with a readable
 list of invalid names at API and agent startup.
@@ -284,7 +285,7 @@ runtime failures and transcription latency are measured automatically.
 ## Deployment
 
 `backend/Dockerfile` builds the API/agent image, and `.github/workflows/ci.yml`
-runs backend tests plus frontend lint/test/build. See
+runs backend tests, a Docker build, plus frontend lint/test/build. See
 [`docs/deployment.md`](docs/deployment.md) for provider-neutral steps covering
 the API, agent worker, static frontend, MongoDB Atlas, LiveKit Cloud, and Sarvam.
 

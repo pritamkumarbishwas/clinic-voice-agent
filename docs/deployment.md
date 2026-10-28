@@ -71,8 +71,12 @@ booked slot when one exists, and creates `uniq_doctor_slot`.
 2. Run the API from `backend/`:
 
    ```powershell
-   uvicorn main:app --host 0.0.0.0 --port 8000
+   uvicorn main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
    ```
+
+   Behind a trusted reverse proxy, use
+   `--proxy-headers --forwarded-allow-ips=<proxy-ip>` instead and set
+   `TRUST_PROXY_HEADERS=true`.
 
 3. Health check paths: `/api/health/live` (liveness), `/api/health` and
    `/api/ready` (MongoDB readiness).
@@ -90,7 +94,8 @@ booked slot when one exists, and creates `uniq_doctor_slot`.
    - `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`
    - `LOG_LEVEL=INFO`, `RATE_LIMIT_ENABLED=true`
    - `TRUSTED_HOSTS` with explicit API hostnames
-   - `TRUST_PROXY_HEADERS=true` only behind a trusted reverse proxy
+   - `TRUST_PROXY_HEADERS=true` only behind a trusted reverse proxy; also run
+     Uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy-ip>`
    - optional `SENTRY_DSN`, `SENTRY_ENVIRONMENT=production`
    - optional RAG settings: `OPENAI_API_KEY`, `RAG_ENABLED`,
      `OPENAI_EMBEDDING_MODEL`, `RAG_TOP_K`, `RAG_MIN_SCORE`,
@@ -98,7 +103,8 @@ booked slot when one exists, and creates `uniq_doctor_slot`.
      `RAG_MAX_UPLOAD_BYTES`, `RAG_MAX_PDF_PAGES`, `RAG_MAX_DOCUMENTS`
 5. API-only variables:
    - `ANALYSIS_WORKER_ENABLED=false` when running a dedicated worker
-   - `CORS_ORIGINS` with the exact production frontend origin
+   - `CORS_ORIGINS` with the exact production frontend origin; never use `*`
+     because credentialed requests are enabled
 
 For a same-origin reverse proxy, `COOKIE_SAMESITE=lax` is sufficient. If the
 frontend calls the API directly from another site, use
@@ -183,6 +189,11 @@ docker build -t clinic-voice-agent .
 docker run --env-file .env -p 8000:8000 clinic-voice-agent
 ```
 
+The image starts Uvicorn with `--no-proxy-headers` so callers cannot spoof
+`X-Forwarded-For`. Behind a trusted reverse proxy, override the command with
+`--proxy-headers --forwarded-allow-ips=<proxy-ip>` and set
+`TRUST_PROXY_HEADERS=true` so rate-limit keys use the real client IP.
+
 Override the command for the agent worker or analysis worker:
 
 ```powershell
@@ -190,9 +201,9 @@ docker run --env-file .env clinic-voice-agent python agent.py start
 docker run --env-file .env clinic-voice-agent python -m app.workers.analysis_worker
 ```
 
-`.github/workflows/ci.yml` runs backend compile/tests/ruff and frontend
-test/lint/build on pushes to `main` and pull requests. Run the same checks
-locally before deploying:
+`.github/workflows/ci.yml` runs backend compile/tests/ruff, a Docker build,
+and frontend test/lint/build on pushes to `main` and pull requests. Run the
+same backend checks locally before deploying:
 
 ```powershell
 cd backend
@@ -215,7 +226,8 @@ npm run build
   `COOKIE_SECURE`/`COOKIE_SAMESITE` and make sure the browser is using the same
   origin as the `/api` proxy.
 - **CORS error**: add the exact frontend origin to `CORS_ORIGINS` (scheme and
-  port must match).
+  port must match). A wildcard is rejected because credentialed requests are
+  enabled.
 - **Agent cannot load clinic details**: run `scripts/seed_clinic.py` or save the
   profile in `/admin/clinic`.
 - **Booking fails**: verify the MongoDB cluster supports transactions and that
