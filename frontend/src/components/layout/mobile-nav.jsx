@@ -7,7 +7,7 @@ function MobileNav() {
   return (
     <nav
       aria-label="Sections"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/92 backdrop-blur-xl lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/92 backdrop-blur-xl after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:w-8 after:bg-gradient-to-l after:from-background after:to-transparent lg:hidden"
     >
       <div className="no-scrollbar mx-auto flex max-w-lg snap-x gap-1 overflow-x-auto px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         {NAV_ITEMS.map((item) => {

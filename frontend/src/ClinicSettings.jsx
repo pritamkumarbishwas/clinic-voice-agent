@@ -491,7 +491,10 @@ function ClinicProfileForm({ initialProfile }) {
         </Card>
 
         <div className="sticky bottom-20 z-10 flex flex-col gap-3 rounded-2xl border border-border/80 bg-background/92 p-3 shadow-lg backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between lg:bottom-4">
-          <div className="flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground">
+          <div
+            className="flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground"
+            role="status"
+          >
             <span
               className={`size-2 rounded-full ${
                 isDirty ? "bg-warning" : "bg-success"

@@ -174,7 +174,7 @@ const TIPS = [
   {
     icon: Languages,
     title: "Speak naturally",
-    text: "Use Hindi, English, or Hinglish.",
+    text: "Use Hindi or Hinglish, just like a local clinic call.",
   },
   {
     icon: CalendarCheck2,
@@ -835,7 +835,6 @@ export default function LiveCall({ admin = false }) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <Badge variant="outline">Hindi</Badge>
-                  <Badge variant="outline">English</Badge>
                   <Badge variant="outline">Hinglish</Badge>
                 </div>
               </div>
