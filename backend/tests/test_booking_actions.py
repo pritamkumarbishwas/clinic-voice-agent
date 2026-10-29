@@ -224,6 +224,12 @@ def test_generate_booking_reference_is_safe_and_normalizable():
     assert booking_service.normalize_booking_reference(
         reference.lower().replace("-", " ")
     ) == reference
+    assert booking_service.normalize_booking_reference("ABC234") == "CLN-ABC234"
+    assert (
+        booking_service.normalize_booking_reference("CLN-ABC234.")
+        == "CLN-ABC234"
+    )
+    assert booking_service.normalize_booking_reference("CLN234") == "CLN-CLN234"
     assert booking_service.normalize_booking_reference("CLN-O0I1") is None
 
 

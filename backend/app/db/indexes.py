@@ -29,7 +29,17 @@ async def _ensure_appointment_slot_index() -> None:
             continue
         if info.get("partialFilterExpression") == {"status": "confirmed"}:
             continue
-        await appointments.drop_index(name)
+        try:
+            await appointments.drop_index(name)
+        except OperationFailure:
+            logger.warning(
+                "Could not drop legacy appointment slot index %s. Check "
+                "database index permissions; cancelled slots may not be "
+                "rebookable until it is removed.",
+                name,
+                exc_info=True,
+            )
+            continue
         logger.warning(
             "Dropped legacy unique appointment slot index %s; "
             "replacing it with a confirmed-only unique index.",

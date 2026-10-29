@@ -67,7 +67,10 @@ booked slot when one exists, and creates `uniq_doctor_slot`.
 
 Startup also replaces the legacy all-status unique appointment slot index with
 a confirmed-only index. This lets a cancelled slot be rebooked while still
-preventing two confirmed appointments from sharing the same slot.
+preventing two confirmed appointments from sharing the same slot. The MongoDB
+user therefore needs `createIndex` and `dropIndex` permissions; if the legacy
+index cannot be dropped, startup logs a warning and cancelled slots may remain
+blocked until it is removed.
 
 ## 3. API service
 

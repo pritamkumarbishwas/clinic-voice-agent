@@ -28,7 +28,7 @@ BOOKING_REFERENCE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _PHONE_PATTERN = re.compile(r"^\+?\d{10,15}$")
 _DOCTOR_PREFIX_PATTERN = re.compile(r"^(?:dr\.?|doctor)\s+", re.IGNORECASE)
 _PHONE_NOISE_PATTERN = re.compile(r"[\s\-().]")
-_REFERENCE_NOISE_PATTERN = re.compile(r"[\s\-]")
+_REFERENCE_NOISE_PATTERN = re.compile(r"[\s\-.]")
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 
 
@@ -63,7 +63,10 @@ def generate_booking_reference() -> str:
 
 def normalize_booking_reference(value: str | None) -> str | None:
     cleaned = _normalize_digits(_clean_text(value)).upper()
-    if cleaned.startswith(BOOKING_REFERENCE_PREFIX):
+    if (
+        cleaned.startswith(BOOKING_REFERENCE_PREFIX)
+        and len(cleaned) > BOOKING_REFERENCE_LENGTH
+    ):
         cleaned = cleaned[len(BOOKING_REFERENCE_PREFIX) :]
     cleaned = _REFERENCE_NOISE_PATTERN.sub("", cleaned)
     if len(cleaned) != BOOKING_REFERENCE_LENGTH:
