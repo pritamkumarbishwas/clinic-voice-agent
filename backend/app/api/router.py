@@ -10,12 +10,14 @@ from app.api.routes import (
     health,
     knowledge,
     livekit,
+    voice,
 )
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(livekit.router)
+api_router.include_router(voice.router)
 api_router.include_router(calls.router)
 api_router.include_router(appointments.router)
 api_router.include_router(doctors.router)

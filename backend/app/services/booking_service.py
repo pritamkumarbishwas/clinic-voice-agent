@@ -452,12 +452,22 @@ async def check_availability(date: str, doctor_name: str) -> dict:
     }
 
 
+def _duplicate_key_fields(error: DuplicateKeyError) -> set[str]:
+    details = getattr(error, "details", None) or {}
+    for field in ("keyPattern", "keyValue"):
+        values = details.get(field)
+        if isinstance(values, dict):
+            return set(values)
+    return set()
+
+
 async def book_appointment(
     *,
     name: str,
     phone: str,
     slot_id: str,
     call_id: str,
+    extra_fields: dict | None = None,
 ) -> dict:
     """Book a slot atomically. Safe to retry; duplicates for a call are reported, not duplicated."""
     clean_name = _clean_text(name)
@@ -593,6 +603,8 @@ async def book_appointment(
             "status": "confirmed",
             "created_at": datetime.now(timezone.utc),
         }
+        if extra_fields:
+            appointment_document.update(extra_fields)
 
         await appointments.insert_one(appointment_document, session=session)
 
@@ -625,7 +637,18 @@ async def book_appointment(
                         reference=reference,
                     )
                 )
-        except DuplicateKeyError:
+        except DuplicateKeyError as exc:
+            duplicate_fields = _duplicate_key_fields(exc)
+            if "api_idempotency_key" in duplicate_fields:
+                return _action_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "This idempotency key was already used for another booking.",
+                )
+            if "slot_id" in duplicate_fields:
+                return _action_error(
+                    "SLOT_UNAVAILABLE",
+                    _slot_error_message("SLOT_UNAVAILABLE"),
+                )
             logger.warning("Booking reference collision; retrying")
             continue
         except _AppointmentActionError as exc:
@@ -680,6 +703,7 @@ async def cancel_appointment(
     reference: str,
     phone: str,
     call_id: str | None = None,
+    reason: str = "patient_request",
 ) -> dict:
     """Cancel a future confirmed appointment after reference and phone verification."""
     clean_phone = _normalize_phone(phone)
@@ -747,7 +771,7 @@ async def cancel_appointment(
                 "$set": {
                     "status": "cancelled",
                     "cancelled_at": current_now,
-                    "cancellation_reason": "patient_request",
+                    "cancellation_reason": reason,
                 }
             },
             session=session,

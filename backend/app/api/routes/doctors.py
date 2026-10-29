@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth import CurrentUser, require_admin
+from app.auth import CurrentUser, get_optional_user, require_admin
+from app.core.errors import ApiError
+from app.schemas.doctors import DoctorListResponse
 from app.services.doctor_service import (
     DoctorProfile,
     count_future_appointments,
@@ -15,11 +17,17 @@ from app.services.doctor_service import (
 router = APIRouter(prefix="/doctors", tags=["doctors"])
 
 
-@router.get("")
+@router.get("", response_model=DoctorListResponse)
 async def read_doctors(
     include_inactive: bool = Query(False),
-    _: CurrentUser = Depends(require_admin),
+    user: CurrentUser | None = Depends(get_optional_user),
 ):
+    if include_inactive and (user is None or not user.is_admin):
+        raise ApiError(
+            status_code=403,
+            code="FORBIDDEN",
+            message="Admin access required.",
+        )
     return {"items": await list_doctors(include_inactive=include_inactive)}
 
 

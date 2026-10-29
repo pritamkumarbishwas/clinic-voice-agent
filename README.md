@@ -154,7 +154,8 @@ See `backend/.env.example` for the full list. The important groups are:
 - Sarvam: `SARVAM_API_KEY`
 - MongoDB: `MONGODB_URI`, `MONGODB_DATABASE`
 - Auth: `JWT_SECRET` (32+ chars), `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`,
-  `AUTH_COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_SAMESITE`
+  `VOICE_SESSION_TTL_MINUTES`, `AUTH_COOKIE_NAME`, `COOKIE_SECURE`,
+  `COOKIE_SAMESITE`
 - Runtime: `APP_ENV`, `TRUSTED_HOSTS`, `DATABASE_TIMEOUT_MS`
 - Clinic: `CLINIC_TIMEZONE` (default `Asia/Kolkata`), `CORS_ORIGINS`
 - STT: `STT_LANGUAGE`, `STT_STREAM_TYPE`, `STT_MODE`, `STT_ENDPOINTING`,
@@ -206,31 +207,50 @@ Do not commit `.env` files. The root `.gitignore` ignores them and keeps
 - `benchmark_runs`: one document per benchmark run with call counts and status
 - `slots` / `appointments` / `doctors`: clinic booking state. Appointments store
   a patient-facing `CLN-XXXXXX` reference; the internal `_id` stays private.
+  REST-created appointments also store `api_idempotency_key`,
+  `api_idempotency_fingerprint`, `source`, and an optional
+  `voice_session_room`.
 
 ## API
 
+All routes are available under `/api/v1`. The legacy `/api` paths remain as
+compatibility aliases. Responses use `detail` plus a structured `error` object
+with `code`, `message`, `details`, and `request_id`.
+
 Public:
 
-- `GET /api/health/live`
-- `GET /api/health`
-- `GET /api/ready`
-- `GET /api/generate-token` - LiveKit token. With `?run_id=baseline-1`, an
-  admin session is required and the run id is copied into every call/turn.
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
+- `GET /health`, `GET /api/v1/health`, `GET /api/v1/health/live`
+- `GET /api/v1/ready`
+- `POST /api/v1/voice/session` - LiveKit token plus a short-lived
+  `session_token`. With `run_id`, an admin session is required and the run id
+  is copied into every call/turn.
+- `GET /api/v1/generate-token` - legacy LiveKit token endpoint.
+- `GET /api/v1/doctors` - active doctors. `include_inactive=true` requires
+  admin.
+- `GET /api/v1/appointments/availability?date=2026-11-02&doctor=Dr.%20Sharma`
+- `POST /api/v1/appointments` - public booking. Send an `Idempotency-Key`
+  header to make retries safe. An optional `X-Voice-Session` token is
+  validated when supplied.
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
 
 Admin (JWT cookie):
 
-- `GET /api/auth/me`
-- `GET /api/calls?page=1&page_size=20&run_id=baseline-1`
-- `GET /api/calls/{call_id}`
-- `POST /api/calls/{call_id}/analyze` - requeue a failed or pending analysis
-- `GET /api/appointments?status=confirmed&doctor=Dr.%20Sharma&date=2026-11-02`
-- `GET /api/doctors`
-- `GET /api/clinic`
-- `PUT /api/clinic`
-- `GET /api/analytics/runs`
-- `GET /api/analytics/latency?run_id=baseline-1`
+- `GET /api/v1/auth/me`
+- `GET /api/v1/appointments?status=confirmed&doctor=Dr.%20Sharma&date=2026-11-02`
+- `PATCH /api/v1/appointments/{appointment_id}` - reschedule with
+  `{"slot_id": "..."}`.
+- `POST /api/v1/appointments/{appointment_id}/cancel`
+- `GET /api/v1/calls?page=1&page_size=20&run_id=baseline-1`
+- `GET /api/v1/calls/{call_id}`
+- `GET /api/v1/calls/{call_id}/transcript?page=1&page_size=200`
+- `POST /api/v1/calls/{call_id}/analyze` - requeue a failed or pending analysis
+- `GET /api/v1/doctors`
+- `GET /api/v1/clinic`
+- `PUT /api/v1/clinic`
+- `GET /api/v1/analytics?from=2026-10-01&to=2026-10-29`
+- `GET /api/v1/analytics/runs`
+- `GET /api/v1/analytics/latency?run_id=baseline-1`
 
 ## Frontend routes
 

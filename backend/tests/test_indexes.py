@@ -83,3 +83,18 @@ def test_confirmed_only_slot_index_is_kept(monkeypatch):
     keys, options = fake.created
     assert keys == [("slot_id", 1)]
     assert options["partialFilterExpression"] == {"status": "confirmed"}
+
+
+def test_appointment_idempotency_index_is_unique_and_partial(monkeypatch):
+    fake = FakeAppointments({})
+    monkeypatch.setattr(indexes, "appointments", fake)
+
+    asyncio.run(indexes._ensure_appointment_idempotency_index())
+
+    keys, options = fake.created
+    assert keys == [("api_idempotency_key", 1)]
+    assert options["unique"] is True
+    assert options["name"] == indexes.APPOINTMENT_IDEMPOTENCY_INDEX
+    assert options["partialFilterExpression"] == {
+        "api_idempotency_key": {"$type": "string"}
+    }

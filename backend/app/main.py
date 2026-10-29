@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.deps import limiter
 from app.api.router import api_router
+from app.api.routes.health import router as health_router
 from app.config import settings
+from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import (
     RequestContextMiddleware,
@@ -70,7 +70,7 @@ def create_app() -> FastAPI:
     )
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    register_error_handlers(app)
 
     app.add_middleware(
         CORSMiddleware,
@@ -86,7 +86,9 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
 
+    app.include_router(health_router)
     app.include_router(api_router, prefix="/api")
+    app.include_router(api_router, prefix="/api/v1")
     return app
 
 

@@ -172,6 +172,7 @@ class Settings:
     jwt_secret: str
     jwt_algorithm: str
     jwt_expire_minutes: int
+    voice_session_ttl_minutes: int
     auth_cookie_name: str
     cookie_secure: bool
     cookie_samesite: str
@@ -290,6 +291,9 @@ class Settings:
             jwt_secret=_text("JWT_SECRET", ""),
             jwt_algorithm=_text("JWT_ALGORITHM", "HS256").upper(),
             jwt_expire_minutes=_int("JWT_EXPIRE_MINUTES", 480),
+            voice_session_ttl_minutes=_int(
+                "VOICE_SESSION_TTL_MINUTES", 15
+            ),
             auth_cookie_name=_text(
                 "AUTH_COOKIE_NAME", "clinic_access_token"
             ),
@@ -349,6 +353,11 @@ class Settings:
 
         if self.jwt_expire_minutes <= 0:
             errors.append("JWT_EXPIRE_MINUTES must be greater than 0")
+
+        if self.voice_session_ttl_minutes <= 0:
+            errors.append(
+                "VOICE_SESSION_TTL_MINUTES must be greater than 0"
+            )
 
         if self.cookie_samesite not in COOKIE_SAMESITE_VALUES:
             errors.append(

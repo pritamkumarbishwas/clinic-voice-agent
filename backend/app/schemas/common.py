@@ -1,6 +1,6 @@
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -20,5 +20,24 @@ class Page(BaseModel, Generic[T]):
     total_pages: int
 
 
+class ErrorDetail(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    message: str
+    details: Any = None
+    request_id: str | None = None
+
+
 class ErrorResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     detail: str
+    error: ErrorDetail
+
+
+class MessageResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    ok: bool = Field(default=True)
+    message: str = ""

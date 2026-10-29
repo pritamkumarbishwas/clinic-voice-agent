@@ -1,9 +1,12 @@
 import asyncio
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
 from app.auth import CurrentUser, require_admin
 from app.db.mongo import call_turns, calls
+from app.schemas.analytics import AnalyticsSummary
+from app.services.analytics_service import get_analytics_summary
 from app.services.latency_report import (
     LATENCY_FIELDS,
     STT_FAILURE_FIELDS,
@@ -11,6 +14,20 @@ from app.services.latency_report import (
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+@router.get("", response_model=AnalyticsSummary)
+async def analytics_summary(
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    run_id: str | None = Query(None, max_length=48),
+    _: CurrentUser = Depends(require_admin),
+):
+    return await get_analytics_summary(
+        from_date=from_date,
+        to_date=to_date,
+        run_id=run_id,
+    )
 
 
 @router.get("/runs")

@@ -72,6 +72,16 @@ user therefore needs `createIndex` and `dropIndex` permissions; if the legacy
 index cannot be dropped, startup logs a warning and cancelled slots may remain
 blocked until it is removed.
 
+Phase 4 adds the unique partial `uniq_appointment_idempotency_key` index used
+by REST booking. Apply it explicitly during deployment:
+
+```powershell
+backend/.venv/Scripts/python.exe scripts/ops/migrate_phase4_api.py
+```
+
+MongoDB is the persistence layer for this phase, so the project uses idempotent
+index migration scripts rather than SQLAlchemy/Alembic.
+
 ## 3. API service
 
 1. Install `backend/requirements.txt` in a Python environment.
@@ -85,8 +95,9 @@ blocked until it is removed.
    `--proxy-headers --forwarded-allow-ips=<proxy-ip>` instead and set
    `TRUST_PROXY_HEADERS=true`.
 
-3. Health check paths: `/api/health/live` (liveness), `/api/health` and
-   `/api/ready` (MongoDB readiness).
+3. Health check paths: `/health` and `/api/v1/health` (MongoDB readiness),
+   `/api/v1/health/live` (liveness), and `/api/v1/ready`. Legacy `/api/health`
+   paths remain available.
 4. Set the shared environment variables for both the API and agent worker:
    - `APP_ENV=production`
    - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
@@ -97,6 +108,7 @@ blocked until it is removed.
    - `CLINIC_TIMEZONE=Asia/Kolkata`
    - `JWT_SECRET` (32+ characters)
    - `JWT_ALGORITHM=HS256`, `JWT_EXPIRE_MINUTES=480`
+   - `VOICE_SESSION_TTL_MINUTES=15`
    - `AUTH_COOKIE_NAME=clinic_access_token`
    - `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`
    - `LOG_LEVEL=INFO`, `RATE_LIMIT_ENABLED=true`

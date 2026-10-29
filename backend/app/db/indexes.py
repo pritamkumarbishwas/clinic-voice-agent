@@ -17,6 +17,7 @@ from app.db.mongo import (
 logger = logging.getLogger("clinic-indexes")
 
 APPOINTMENT_SLOT_INDEX = "uniq_confirmed_appointment_slot"
+APPOINTMENT_IDEMPOTENCY_INDEX = "uniq_appointment_idempotency_key"
 
 
 async def _ensure_appointment_slot_index() -> None:
@@ -60,6 +61,23 @@ async def _ensure_appointment_slot_index() -> None:
         )
 
 
+async def _ensure_appointment_idempotency_index() -> None:
+    try:
+        await appointments.create_index(
+            [("api_idempotency_key", ASCENDING)],
+            unique=True,
+            partialFilterExpression={
+                "api_idempotency_key": {"$type": "string"}
+            },
+            name=APPOINTMENT_IDEMPOTENCY_INDEX,
+        )
+    except (DuplicateKeyError, OperationFailure):
+        logger.warning(
+            "Could not create the appointment idempotency index. "
+            "Check for duplicate idempotency keys before restarting."
+        )
+
+
 async def create_indexes() -> None:
     """Create idempotent indexes for the API and agent worker."""
     await users.create_index([("email", ASCENDING)], unique=True)
@@ -99,6 +117,7 @@ async def create_indexes() -> None:
         sparse=True,
         name="uniq_appointment_reference",
     )
+    await _ensure_appointment_idempotency_index()
     await appointments.create_index([("call_id", ASCENDING)])
     await appointments.create_index([("created_at", DESCENDING)])
     await appointments.create_index([("start_at", ASCENDING)])
